@@ -4,6 +4,7 @@ import { ArrowRightIcon, ChevronRightIcon } from 'lucide-react'
 import Image from 'next/image'
 import React from 'react'
 import CategoriesMarquee from './CategoriesMarquee'
+import Link from 'next/link'
 
 const Hero = () => {
 
@@ -30,10 +31,10 @@ const Hero = () => {
                 </div>
                 <div className='flex flex-col md:flex-row xl:flex-col gap-5 w-full xl:max-w-sm text-sm text-slate-600'>
                     <div className='flex-1 flex items-center justify-between w-full bg-orange-200 rounded-3xl p-6 px-8 group'>
-                        <div>
+                        <Link href={`/best-selling`} className='space-y-3 cursor-pointer'>
                             <p className='text-3xl font-medium bg-gradient-to-r from-slate-800 to-[#FFAD51] bg-clip-text text-transparent max-w-40'>Best products</p>
                             <p className='flex items-center gap-1 mt-4'>View more <ArrowRightIcon className='group-hover:ml-2 transition-all' size={18} /> </p>
-                        </div>
+                        </Link>
                         <Image className='w-35' src={assets.hero_product_img1} alt="" />
                     </div>
                     <div className='flex-1 flex items-center justify-between w-full bg-blue-200 rounded-3xl p-6 px-8 group'>

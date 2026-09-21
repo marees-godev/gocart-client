@@ -1,7 +1,16 @@
 'use client'
 
 import { usePathname } from "next/navigation"
-import { HomeIcon, ShieldCheckIcon, StoreIcon, TicketPercentIcon } from "lucide-react"
+import {
+    HomeIcon,
+    ShieldCheckIcon,
+    StoreIcon,
+    TicketPercentIcon,
+    LayoutListIcon,
+    UsersIcon,
+    LayersIcon,
+    SettingsIcon
+} from "lucide-react"
 import Image from "next/image"
 import Link from "next/link"
 import { assets } from "@/assets/assets"
@@ -14,7 +23,11 @@ const AdminSidebar = () => {
         { name: 'Dashboard', href: '/admin', icon: HomeIcon },
         { name: 'Stores', href: '/admin/stores', icon: StoreIcon },
         { name: 'Approve Store', href: '/admin/approve', icon: ShieldCheckIcon },
-        { name: 'Coupons', href: '/admin/coupons', icon: TicketPercentIcon  },
+        { name: 'Master Orders', href: '/admin/orders', icon: LayoutListIcon },
+        { name: 'Users & Merchants', href: '/admin/users', icon: UsersIcon },
+        { name: 'Categories', href: '/admin/categories', icon: LayersIcon },
+        { name: 'Coupons', href: '/admin/coupons', icon: TicketPercentIcon },
+        { name: 'Platform Settings', href: '/admin/settings', icon: SettingsIcon },
     ]
 
     return (
