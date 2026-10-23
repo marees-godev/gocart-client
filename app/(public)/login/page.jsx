@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useReducer, useState } from 'react'
+import React, { useReducer, useState, Suspense } from 'react'
 import Link from 'next/link'
 import {
     Mail,
@@ -23,7 +23,7 @@ import { setAuth } from '@/lib/features/auth/authSlice'
 import toast from 'react-hot-toast'
 import { LOGIN_MUTATION, REGISTER_MUTATION } from '@/lib/graphql/auth'
 
-export default function LoginPage() {
+function LoginForm() {
 
     const [authMode, setAuthMode] = useState('login')
     const router = useRouter();
@@ -519,3 +519,18 @@ export default function LoginPage() {
         </div>
     )
 }
+
+export default function LoginPage() {
+    return (
+        <Suspense fallback={
+            <div className="min-h-[85vh] flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8 bg-slate-50/50">
+                <div className="w-full max-w-5xl bg-white rounded-3xl border border-slate-200/80 p-12 shadow-xl shadow-slate-200/40 flex items-center justify-center">
+                    <div className="text-slate-400 text-sm">Loading login...</div>
+                </div>
+            </div>
+        }>
+            <LoginForm />
+        </Suspense>
+    )
+}
+
