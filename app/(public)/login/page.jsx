@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState } from 'react'
+import React, { useReducer, useState } from 'react'
 import Link from 'next/link'
 import {
     Mail,
@@ -15,43 +15,141 @@ import {
     Sparkles,
     ArrowLeft
 } from 'lucide-react'
+import { useRouter } from 'next/navigation'
+import { useSearchParams } from 'next/navigation'
+import { useDispatch } from 'react-redux'
+import { apiClient, graphqlRequest } from '@/lib/apiClient'
+import { setAuth } from '@/lib/features/auth/authSlice'
+import toast from 'react-hot-toast'
+import { LOGIN_MUTATION, REGISTER_MUTATION } from '@/lib/graphql/auth'
 
 export default function LoginPage() {
-    // Mode state: 'login' | 'register' | 'forgot'
+
     const [authMode, setAuthMode] = useState('login')
-
-    // Password visibility toggles
-    const [showPassword, setShowPassword] = useState(false)
-    const [showConfirmPassword, setShowConfirmPassword] = useState(false)
-
-    // Form states (Design placeholder - ready for your JS / Auth logic)
+    const router = useRouter();
+    const searchParams = useSearchParams();
+    const dispatch = useDispatch();
+    const [loading, setLoading] = useState(false);
     const [formData, setFormData] = useState({
-        name: '',
+        firstName: '',
+        lastName: "",
         email: '',
+        isMerchant: false,
         password: '',
         confirmPassword: '',
         rememberMe: false,
-        agreeTerms: true
+        agreeTerms: true,
     })
+
+    const [showPassword, setShowPassword] = useState(false);
+    const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
     const handleChange = (e) => {
         const { name, value, type, checked } = e.target
-        setFormData((prev) => ({
+
+        setFormData(prev => ({
             ...prev,
-            [name]: type === 'checkbox' ? checked : value
+            [name]: type === 'checkbox' ? checked : value,
         }))
     }
 
-    const handleSubmit = (e) => {
+
+    const handleSubmit = async (e) => {
         e.preventDefault()
-        // TODO: Insert your authentication / registration logic here
-        console.log('Submitting Auth Form:', { mode: authMode, ...formData })
+        setLoading(true)
+        try {
+
+            let authData
+
+            if (authMode === 'login') {
+                const response = await graphqlRequest(LOGIN_MUTATION, {
+                    email: formData.email,
+                    password: formData.password
+                })
+                authData = response.login
+            } else {
+                if (formData.password !== formData.confirmPassword) {
+                    throw new Error("Passwords doesn't match")
+                }
+                const response = await graphqlRequest(REGISTER_MUTATION, {
+                    input: {
+                        firstName: formData.firstName,
+                        lastName: formData.lastName,
+                        email: formData.email,
+                        password: formData.password,
+                        isMerchant: formData.isMerchant || false,
+                    }
+                })
+
+                authData = response.register
+            }
+
+            const token = authData.token
+            let user = authData.user
+
+            // If backend only returns token on register, extract user info or decode from token
+            if (!user && token) {
+                try {
+                    const base64Url = token.split('.')[1]
+                    const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/')
+                    const decoded = JSON.parse(atob(base64))
+                    user = {
+                        id: decoded.userId || decoded.id || '',
+                        name: decoded.name || `${formData.firstName} ${formData.lastName}`.trim(),
+                        email: decoded.email || formData.email,
+                        role: decoded.role || (formData.isMerchant ? 'MERCHANT' : 'USER'),
+                    }
+                } catch {
+                    user = {
+                        name: `${formData.firstName} ${formData.lastName}`.trim() || formData.email,
+                        email: formData.email,
+                        role: formData.isMerchant ? 'MERCHANT' : 'USER',
+                    }
+                }
+            }
+
+            localStorage.setItem('token', token)
+            if (user) localStorage.setItem('user', JSON.stringify(user))
+            document.cookie = `token=${token}; path=/; max-age=604800; SameSite=Lax`
+
+            dispatch(setAuth({
+                user: user, 
+                token: token
+            }))
+
+            toast.success(authMode === 'login' ? `Welcome back, ${user?.name || 'User'}!` : 'Account created successfully!')
+
+            const redirectUrl = searchParams.get('redirect')
+            if (redirectUrl) {
+                router.push(redirectUrl)
+                return
+            }
+
+            const userRole = user?.role || (formData.isMerchant ? 'MERCHANT' : 'USER')
+            switch (userRole) {
+                case 'ADMIN':
+                    router.push('/admin')
+                    break;
+                case 'MERCHANT':
+                    router.push('/store')
+                    break;
+                case 'USER':
+                default:
+                    router.push('/')
+                    break;
+            }
+
+        } catch (err) {
+            toast.error(err.message || 'Authentication failed')
+        } finally {
+            setLoading(false)
+        }
     }
 
     return (
         <div className="min-h-[85vh] flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8 bg-slate-50/50">
             <div className="w-full max-w-5xl bg-white rounded-3xl border border-slate-200/80 shadow-xl shadow-slate-200/40 overflow-hidden grid grid-cols-1 lg:grid-cols-12 min-h-[620px]">
-                
+
                 {/* Left Side: Brand Promo / Visual Highlight */}
                 <div className="lg:col-span-5 bg-gradient-to-br from-slate-900 via-slate-800 to-green-950 p-8 sm:p-10 text-white flex flex-col justify-between relative overflow-hidden">
                     {/* Decorative background glows */}
@@ -109,7 +207,7 @@ export default function LoginPage() {
 
                 {/* Right Side: Auth Form */}
                 <div className="lg:col-span-7 p-8 sm:p-12 flex flex-col justify-center">
-                    
+
                     {/* Header with Switcher Tabs */}
                     <div className="mb-8">
                         {authMode === 'forgot' ? (
@@ -191,24 +289,43 @@ export default function LoginPage() {
 
                     {/* Main Form */}
                     <form onSubmit={handleSubmit} className="space-y-4">
-                        
+
                         {/* Name Input (Register Mode only) */}
                         {authMode === 'register' && (
-                            <div>
-                                <label className="block text-xs font-semibold text-slate-700 mb-1.5 uppercase tracking-wider">
-                                    Full Name
-                                </label>
-                                <div className="relative">
-                                    <input
-                                        type="text"
-                                        name="name"
-                                        required
-                                        value={formData.name}
-                                        onChange={handleChange}
-                                        placeholder="Alex Morgan"
-                                        className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-300 focus:border-slate-900 focus:ring-1 focus:ring-slate-900 outline-none text-slate-800 text-sm transition"
-                                    />
-                                    <User size={17} className="absolute left-3.5 top-3 text-slate-400" />
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                <div>
+                                    <label className="block text-xs font-semibold text-slate-700 mb-1.5 uppercase tracking-wider">
+                                        First Name
+                                    </label>
+                                    <div className="relative">
+                                        <input
+                                            type="text"
+                                            name="firstName"
+                                            required
+                                            value={formData.firstName}
+                                            onChange={handleChange}
+                                            placeholder="Alex"
+                                            className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-300 focus:border-slate-900 focus:ring-1 focus:ring-slate-900 outline-none text-slate-800 text-sm transition"
+                                        />
+                                        <User size={17} className="absolute left-3.5 top-3 text-slate-400" />
+                                    </div>
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-semibold text-slate-700 mb-1.5 uppercase tracking-wider">
+                                        Last Name
+                                    </label>
+                                    <div className="relative">
+                                        <input
+                                            type="text"
+                                            name="lastName"
+                                            required
+                                            value={formData.lastName}
+                                            onChange={handleChange}
+                                            placeholder="Morgan"
+                                            className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-300 focus:border-slate-900 focus:ring-1 focus:ring-slate-900 outline-none text-slate-800 text-sm transition"
+                                        />
+                                        <User size={17} className="absolute left-3.5 top-3 text-slate-400" />
+                                    </div>
                                 </div>
                             </div>
                         )}
@@ -344,6 +461,7 @@ export default function LoginPage() {
                         <button
                             type="submit"
                             className="w-full flex items-center justify-center gap-2 py-3 px-6 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-medium text-sm shadow-md hover:shadow-lg active:scale-98 transition-all mt-2"
+                            disabled={loading || (authMode === 'register' && !formData.agreeTerms)}
                         >
                             <span>
                                 {authMode === 'login' && 'Sign In to Account'}

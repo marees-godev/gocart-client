@@ -3,65 +3,78 @@ import { Search, ShoppingCart } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { useSelector } from "react-redux";
+import { useDispatch, useSelector } from "react-redux";
 
 const Navbar = () => {
 
-    const router = useRouter();
-
-    const [search, setSearch] = useState('')
+    const dispatch = useDispatch()
     const cartCount = useSelector(state => state.cart.total)
+    const { user, isAuthenticated } = useSelector(state => state.auth)
 
-    const handleSearch = (e) => {
-        e.preventDefault()
-        router.push(`/shop?search=${search}`)
+    const handleLogout = () => {
+        dispatch(logout())
+        window.location.href = '/'
     }
 
     return (
         <nav className="relative bg-white">
             <div className="mx-6">
-                <div className="flex items-center justify-between max-w-7xl mx-auto py-4  transition-all">
+                <div className="flex items-center justify-between max-w-7xl mx-auto py-4">
 
                     <Link href="/" className="relative text-4xl font-semibold text-slate-700">
-                        <span className="text-green-600">go</span>cart<span className="text-green-600 text-5xl leading-0">.</span>
-                        <p className="absolute text-xs font-semibold -top-1 -right-8 px-3 p-0.5 rounded-full flex items-center gap-2 text-white bg-green-500">
-                            plus
-                        </p>
+                        <span className="text-green-600">go</span>cart<span className="text-green-600 text-5xl">.</span>
                     </Link>
 
-                    {/* Desktop Menu */}
-                    <div className="hidden sm:flex items-center gap-4 lg:gap-8 text-slate-600">
+                    <div className="hidden sm:flex items-center gap-4 lg:gap-6 text-slate-600">
                         <Link href="/">Home</Link>
                         <Link href="/shop">Shop</Link>
-                        <Link href="/">About</Link>
-                        <Link href="/">Contact</Link>
-
-                        <form onSubmit={handleSearch} className="hidden xl:flex items-center w-xs text-sm gap-2 bg-slate-100 px-4 py-3 rounded-full">
-                            <Search size={18} className="text-slate-600" />
-                            <input className="w-full bg-transparent outline-none placeholder-slate-600" type="text" placeholder="Search products" value={search} onChange={(e) => setSearch(e.target.value)} required />
-                        </form>
-
                         <Link href="/cart" className="relative flex items-center gap-2 text-slate-600">
                             <ShoppingCart size={18} />
                             Cart
-                            <button className="absolute -top-1 left-3 text-[8px] text-white bg-slate-600 size-3.5 rounded-full">{cartCount}</button>
+                            <button className="absolute -top-1 left-3 text-[8px] text-white bg-slate-600 size-3.5 rounded-full">
+                                {cartCount}
+                            </button>
                         </Link>
 
-                        <Link href="/login" className="px-8 py-2 bg-indigo-500 hover:bg-indigo-600 transition text-white rounded-full">
-                            Login
-                        </Link>
-
-                    </div>
-
-                    {/* Mobile User Button  */}
-                    <div className="sm:hidden">
-                        <Link href="/login" className="px-7 py-1.5 bg-indigo-500 hover:bg-indigo-600 text-sm transition text-white rounded-full">
-                            Login
-                        </Link>
+                        {isAuthenticated && user?.role === 'MERCHANT' && (
+                            <Link
+                                href="/store"
+                                className="flex items-center gap-1.5 px-3.5 py-1.5 bg-green-50 text-green-700 border border-green-200 rounded-full text-xs font-semibold hover:bg-green-100 transition"
+                            >
+                                <LayoutDashboard size={14} /> Merchant Panel
+                            </Link>
+                        )}
+                        {isAuthenticated && user?.role === 'ADMIN' && (
+                            <Link
+                                href="/admin"
+                                className="flex items-center gap-1.5 px-3.5 py-1.5 bg-purple-50 text-purple-700 border border-purple-200 rounded-full text-xs font-semibold hover:bg-purple-100 transition"
+                            >
+                                <ShieldCheck size={14} /> Admin Console
+                            </Link>
+                        )}
+                        {/* Auth Buttons */}
+                        {isAuthenticated ? (
+                            <div className="flex items-center gap-3">
+                                <Link href="/profile" className="flex items-center gap-1.5 text-sm font-medium text-slate-800">
+                                    <UserIcon size={16} /> {user?.name}
+                                </Link>
+                                <button
+                                    onClick={handleLogout}
+                                    className="p-2 text-slate-500 hover:text-red-600 transition"
+                                    title="Logout"
+                                >
+                                    <LogOut size={18} />
+                                </button>
+                            </div>
+                        ) : (
+                            <Link href="/login" className="px-8 py-2 bg-indigo-500 hover:bg-indigo-600 transition text-white rounded-full">
+                                Login
+                            </Link>
+                        )}
                     </div>
                 </div>
             </div>
-            <hr className="border-gray-300" />
+            <hr className="border-gray-200" />
         </nav>
     )
 }
