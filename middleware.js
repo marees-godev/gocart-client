@@ -12,38 +12,37 @@ function decodeJwtPayload(token) {
 
 export function middleware(request) {
     const { pathname } = request.nextUrl
-    const token = request.cookies.get('token')?.value
 
-    const isAdminRoute = pathname.startsWith('/admin');
+    // Redirect any legacy /admin requests to the standalone gocart-admin site
+    if (pathname.startsWith('/admin')) {
+        const adminUrl = process.env.NEXT_PUBLIC_ADMIN_URL || 'http://localhost:3001'
+        const targetPath = pathname.replace(/^\/admin/, '') || '/'
+        return NextResponse.redirect(new URL(targetPath, adminUrl))
+    }
+
+    const token = request.cookies.get('token')?.value
     const isStoreRoute = pathname.startsWith('/store');
 
-    if (!token && (isAdminRoute || isStoreRoute)) {
-        const targetPath = isStoreRoute ? '/merchant/login' : '/login'
-        const loginUrl = new URL(targetPath, request.url)
+    if (!token && isStoreRoute) {
+        const loginUrl = new URL('/merchant/login', request.url)
         loginUrl.searchParams.set('redirect', pathname)
         return NextResponse.redirect(loginUrl)
     }
 
-    if (token) {
+    if (token && isStoreRoute) {
         const payload = decodeJwtPayload(token)
 
         if (!payload) {
-            const targetPath = isStoreRoute ? '/merchant/login' : '/login'
-            const loginUrl = new URL(targetPath, request.url)
+            const loginUrl = new URL('/merchant/login', request.url)
             return NextResponse.redirect(loginUrl)
         }
 
-        if (isAdminRoute && payload.role !== 'ADMIN') {
-            return NextResponse.redirect(new URL('/', request.url))
-        }
-
-        if (isStoreRoute && payload.role !== 'MERCHANT' && payload.role !== 'ADMIN') {
+        if (payload.role !== 'MERCHANT' && payload.role !== 'ADMIN') {
             return NextResponse.redirect(new URL('/merchant', request.url))
         }
     }
 
     return NextResponse.next();
-
 }
 
 export const config = {

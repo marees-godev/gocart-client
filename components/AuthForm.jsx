@@ -55,6 +55,7 @@ const ROLE_CONFIGS = {
         altLinks: [
             { text: 'Merchant Portal', href: '/merchant/login', label: 'Are you a seller?' },
             { text: 'Delivery Hub', href: '/delivery/login', label: 'Delivery partner?' },
+            { text: 'Admin Console', href: `${process.env.NEXT_PUBLIC_ADMIN_URL || 'http://localhost:3001'}/login`, label: 'Administrator?' },
         ],
     },
     MERCHANT: {
@@ -78,6 +79,7 @@ const ROLE_CONFIGS = {
         altLinks: [
             { text: 'Customer Login', href: '/login', label: 'Looking to shop?' },
             { text: 'Delivery Hub', href: '/delivery/login', label: 'Delivery partner?' },
+            { text: 'Admin Console', href: `${process.env.NEXT_PUBLIC_ADMIN_URL || 'http://localhost:3001'}/login`, label: 'Administrator?' },
         ],
     },
     DELIVERY_PARTNER: {
@@ -101,6 +103,7 @@ const ROLE_CONFIGS = {
         altLinks: [
             { text: 'Customer Login', href: '/login', label: 'Looking to shop?' },
             { text: 'Merchant Portal', href: '/merchant/login', label: 'Are you a seller?' },
+            { text: 'Admin Console', href: `${process.env.NEXT_PUBLIC_ADMIN_URL || 'http://localhost:3001'}/login`, label: 'Administrator?' },
         ],
     },
 }
@@ -226,7 +229,7 @@ function AuthFormInner({
         const finalRole = user?.role || authData.role || currentRole
         switch (finalRole) {
             case 'ADMIN':
-                router.push('/admin')
+                window.location.href = process.env.NEXT_PUBLIC_ADMIN_URL || 'http://localhost:3001'
                 break
             case 'MERCHANT':
             case 'SELLER':

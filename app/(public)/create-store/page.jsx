@@ -1,6 +1,8 @@
 'use client'
+
 import { assets } from "@/assets/assets"
 import { useEffect, useState } from "react"
+import { useRouter } from "next/navigation"
 import Image from "next/image"
 import toast from "react-hot-toast"
 import Loading from "@/components/Loading"
@@ -8,6 +10,7 @@ import { CREATE_STORE_MUTATION, GET_USER_STORE_QUERY } from "@/lib/graphql/store
 import { graphqlRequest } from "@/lib/apiClient"
 
 export default function CreateStore() {
+    const router = useRouter()
 
     const [alreadySubmitted, setAlreadySubmitted] = useState(false)
     const [status, setStatus] = useState("")
@@ -33,32 +36,33 @@ export default function CreateStore() {
         try {
             const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null
             if (!token) {
-                routerServerGlobal.push('/login?redirect=/create-store')
+                router.push('/login?redirect=/create-store')
                 return
             }
-            if (GET_USER_STORE_QUERY) {
-                const data = await graphqlRequest(GET_USER_STORE_QUERY)
-                const store = date?.mystore || data?.userStore
 
-                if (!store) {
-                    setAlreadySubmitted(true)
-                    setStatus(store.status)
+            const data = await graphqlRequest(GET_USER_STORE_QUERY).catch(() => null)
+            const store = data?.myStore
 
-                    if (store.status === 'pending') {
-                        setMessage("Your store application is currently under review by our admin team.")
+            if (store) {
+                setAlreadySubmitted(true)
+                const currentStatus = store.approvalStatus || store.status
+                setStatus(currentStatus)
 
-                    } else if (store.statis === "approved") {
-                        setMessage("Congratulations your store is active.")
-                        setTimeout(() => {
-                            router.push("/store")
-                        }, 4000)
-                    } else if (store.status === 'rejected') {
-                        setMessage("Your store application was rejected, Please contact support")
-                    }
+                if (currentStatus === 'PENDING' || currentStatus === 'pending') {
+                    setMessage("Your store application is currently under review by our admin team.")
+                } else if (currentStatus === 'APPROVED' || currentStatus === 'approved') {
+                    setMessage("Congratulations, your store is active!")
+                    setTimeout(() => {
+                        router.push("/store")
+                    }, 3000)
+                } else if (currentStatus === 'REJECTED' || currentStatus === 'rejected') {
+                    setMessage("Your store application was rejected. Please contact support.")
+                } else {
+                    setMessage(`Your store status: ${currentStatus}`)
                 }
             }
         } catch (error) {
-            console.log("No existing store or not logged in yet:", error.message);
+            console.log("No existing store or not logged in yet:", error.message)
         } finally {
             setLoading(false)
         }
@@ -66,24 +70,42 @@ export default function CreateStore() {
 
     const onSubmitHandler = async (e) => {
         e.preventDefault()
-        setLoading(true)
+        setSubmitting(true)
         try {
+            const cleanSlug = (storeInfo.username || storeInfo.name)
+                .toLowerCase()
+                .trim()
+                .replace(/[^a-z0-9]/g, '-')
+                .replace(/-+/g, '-')
+
             const response = await graphqlRequest(CREATE_STORE_MUTATION, {
                 input: {
-                    name: storeInfo.name,
-                    username: storeInfo.username,
-                    description: storeInfo.description,
-                    email: storeInfo.email,
-                    phone: storeInfo.contact,
-                    address: storeInfo.address,
-                    logo: storeInfo.image ? (typeof storeInfo.image === 'string' ? storeInfo.image : "") : ""
+                    name: storeInfo.name.trim(),
+                    slug: cleanSlug,
+                    description: storeInfo.description.trim(),
+                    businessEmail: storeInfo.email.trim(),
+                    businessPhone: storeInfo.contact.trim(),
+                    address: storeInfo.address.trim(),
+                    logoUrl: typeof storeInfo.image === 'string' ? storeInfo.image : "",
                 }
             })
-            const createStore = response?.createStore
-            toast.success("Store submitted for review!")
+
+            const createdStore = response?.createStore
+            toast.success("Store submitted successfully!")
             setAlreadySubmitted(true)
-            setStatus(createStore?.status || pending)
+            const approval = createdStore?.approvalStatus || 'PENDING'
+            setStatus(approval)
+
+            if (approval === 'APPROVED') {
+                setMessage("Congratulations, your store is active!")
+                setTimeout(() => {
+                    router.push("/store/add-product")
+                }, 2000)
+            } else {
+                setMessage("Your store application is currently under review by our admin team.")
+            }
         } catch (error) {
+            console.error('Failed to create store:', error)
             toast.error(error.message || "Failed to submit store")
         } finally {
             setSubmitting(false)
@@ -100,7 +122,7 @@ export default function CreateStore() {
                 <div className="mx-6 min-h-[70vh] my-16">
                     <form
                         onSubmit={onSubmitHandler}
-                        className="max-w-7xl mx-auto flex flex-col items-start gap-3 text-slate-500"
+                        className="max-w-4xl mx-auto flex flex-col items-start gap-4 text-slate-500 bg-white p-8 rounded-2xl border border-slate-200 shadow-sm"
                     >
                         {/* Title */}
                         <div>
@@ -108,11 +130,12 @@ export default function CreateStore() {
                                 Add Your <span className="text-slate-800 font-semibold">Store</span>
                             </h1>
                             <p className="max-w-lg mt-1 text-sm text-slate-500">
-                                To become a seller on GoCart, submit your store details for review. Your store will be activated after admin verification.
+                                To become a seller on GoCart, submit your store details for review. Your store will be activated for catalog management.
                             </p>
                         </div>
+
                         {/* Store Logo */}
-                        <label className="mt-8 cursor-pointer font-medium text-slate-700">
+                        <label className="mt-4 cursor-pointer font-medium text-slate-700">
                             Store Logo
                             <Image
                                 src={storeInfo.image instanceof File ? URL.createObjectURL(storeInfo.image) : assets.upload_area}
@@ -128,7 +151,8 @@ export default function CreateStore() {
                                 hidden
                             />
                         </label>
-                        <p className="text-xs font-semibold uppercase tracking-wider text-slate-700 mt-2">Username</p>
+
+                        <p className="text-xs font-semibold uppercase tracking-wider text-slate-700 mt-2">Store Slug / Username</p>
                         <input
                             name="username"
                             onChange={onChangeHandler}
@@ -138,6 +162,7 @@ export default function CreateStore() {
                             required
                             className="border border-slate-300 outline-slate-800 w-full max-w-lg p-2.5 rounded-lg text-slate-800 text-sm"
                         />
+
                         <p className="text-xs font-semibold uppercase tracking-wider text-slate-700 mt-2">Store Name</p>
                         <input
                             name="name"
@@ -148,16 +173,18 @@ export default function CreateStore() {
                             required
                             className="border border-slate-300 outline-slate-800 w-full max-w-lg p-2.5 rounded-lg text-slate-800 text-sm"
                         />
+
                         <p className="text-xs font-semibold uppercase tracking-wider text-slate-700 mt-2">Description</p>
                         <textarea
                             name="description"
                             onChange={onChangeHandler}
                             value={storeInfo.description}
-                            rows={4}
+                            rows={3}
                             placeholder="Briefly describe what your store sells..."
                             required
                             className="border border-slate-300 outline-slate-800 w-full max-w-lg p-2.5 rounded-lg resize-none text-slate-800 text-sm"
                         />
+
                         <p className="text-xs font-semibold uppercase tracking-wider text-slate-700 mt-2">Business Email</p>
                         <input
                             name="email"
@@ -168,6 +195,7 @@ export default function CreateStore() {
                             required
                             className="border border-slate-300 outline-slate-800 w-full max-w-lg p-2.5 rounded-lg text-slate-800 text-sm"
                         />
+
                         <p className="text-xs font-semibold uppercase tracking-wider text-slate-700 mt-2">Contact Number</p>
                         <input
                             name="contact"
@@ -178,6 +206,7 @@ export default function CreateStore() {
                             required
                             className="border border-slate-300 outline-slate-800 w-full max-w-lg p-2.5 rounded-lg text-slate-800 text-sm"
                         />
+
                         <p className="text-xs font-semibold uppercase tracking-wider text-slate-700 mt-2">Address</p>
                         <textarea
                             name="address"
@@ -188,10 +217,11 @@ export default function CreateStore() {
                             required
                             className="border border-slate-300 outline-slate-800 w-full max-w-lg p-2.5 rounded-lg resize-none text-slate-800 text-sm"
                         />
+
                         <button
                             type="submit"
                             disabled={submitting}
-                            className="bg-slate-900 text-white font-medium px-12 py-3 rounded-xl mt-8 mb-40 active:scale-95 hover:bg-slate-800 transition shadow-md disabled:opacity-50"
+                            className="bg-slate-900 text-white font-medium px-10 py-3 rounded-xl mt-6 active:scale-95 hover:bg-slate-800 transition shadow-md disabled:opacity-50"
                         >
                             {submitting ? "Submitting..." : "Submit Store for Review"}
                         </button>
@@ -205,9 +235,9 @@ export default function CreateStore() {
                     <p className="sm:text-2xl lg:text-3xl font-semibold text-slate-800 max-w-xl leading-relaxed">
                         {message}
                     </p>
-                    {status === "approved" && (
+                    {(status === "APPROVED" || status === "approved") && (
                         <p className="mt-4 text-sm text-slate-500">
-                            Redirecting to merchant dashboard in <span className="font-semibold text-green-600">5 seconds</span>...
+                            Redirecting to merchant dashboard...
                         </p>
                     )}
                 </div>

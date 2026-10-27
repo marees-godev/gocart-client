@@ -46,12 +46,12 @@ const Navbar = () => {
                             </Link>
                         )}
                         {isAuthenticated && user?.role === 'ADMIN' && (
-                            <Link
-                                href="/admin"
+                            <a
+                                href={process.env.NEXT_PUBLIC_ADMIN_URL || "http://localhost:3001"}
                                 className="flex items-center gap-1.5 px-3.5 py-1.5 bg-purple-50 text-purple-700 border border-purple-200 rounded-full text-xs font-semibold hover:bg-purple-100 transition"
                             >
                                 <ShieldCheck size={14} /> Admin Console
-                            </Link>
+                            </a>
                         )}
                         {isAuthenticated && user?.role === 'DELIVERY_PARTNER' && (
                             <Link
