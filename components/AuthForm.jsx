@@ -25,6 +25,7 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import { useDispatch } from 'react-redux'
 import { graphqlRequest } from '@/lib/apiClient'
 import { setAuth } from '@/lib/features/auth/authSlice'
+import { addToCart } from '@/lib/features/cart/cartSlice'
 import toast from 'react-hot-toast'
 import {
     LOGIN_MUTATION,
@@ -199,6 +200,16 @@ function AuthFormInner({
         }))
 
         toast.success(`Welcome back, ${user?.name || activeConfig.label}!`)
+
+        // Add pending cart item if user attempted to add-to-cart before login
+        const pendingCartItem = searchParams.get('addCart') || (typeof window !== 'undefined' ? localStorage.getItem('pendingCartItem') : null)
+        if (pendingCartItem) {
+            dispatch(addToCart({ productId: pendingCartItem }))
+            if (typeof window !== 'undefined') {
+                localStorage.removeItem('pendingCartItem')
+            }
+            toast.success('Product added to your cart!')
+        }
 
         const redirectUrl = searchParams.get('redirect')
         if (redirectUrl) {

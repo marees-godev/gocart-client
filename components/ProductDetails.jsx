@@ -3,10 +3,11 @@
 import { addToCart } from "@/lib/features/cart/cartSlice";
 import { StarIcon, TagIcon, EarthIcon, CreditCardIcon, UserIcon } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Image from "next/image";
 import Counter from "./Counter";
 import { useDispatch, useSelector } from "react-redux";
+import toast from "react-hot-toast";
 
 const ProductDetails = ({ product }) => {
 
@@ -14,14 +15,36 @@ const ProductDetails = ({ product }) => {
     const currency = process.env.NEXT_PUBLIC_CURRENCY_SYMBOL || '$';
 
     const cart = useSelector(state => state.cart.cartItems);
+    const { isAuthenticated } = useSelector(state => state.auth);
     const dispatch = useDispatch();
 
     const router = useRouter()
 
     const [mainImage, setMainImage] = useState(product.images[0]);
 
+    // Restore pending cart item if user just returned from login
+    useEffect(() => {
+        if (isAuthenticated && typeof window !== 'undefined') {
+            const pendingItem = localStorage.getItem('pendingCartItem')
+            if (pendingItem === productId) {
+                dispatch(addToCart({ productId }))
+                localStorage.removeItem('pendingCartItem')
+                toast.success('Product added to your cart!')
+            }
+        }
+    }, [isAuthenticated, productId, dispatch])
+
     const addToCartHandler = () => {
+        if (!isAuthenticated) {
+            if (typeof window !== 'undefined') {
+                localStorage.setItem('pendingCartItem', productId)
+            }
+            toast.error('Please login to add items to your cart')
+            router.push(`/login?redirect=${encodeURIComponent(`/product/${productId}`)}&addCart=${productId}`)
+            return
+        }
         dispatch(addToCart({ productId }))
+        toast.success('Added to cart')
     }
 
     const averageRating = product.rating.reduce((acc, item) => acc + item.rating, 0) / product.rating.length;

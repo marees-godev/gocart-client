@@ -3,16 +3,18 @@ import Counter from "@/components/Counter";
 import OrderSummary from "@/components/OrderSummary";
 import PageTitle from "@/components/PageTitle";
 import { deleteItemFromCart } from "@/lib/features/cart/cartSlice";
-import { Trash2Icon } from "lucide-react";
+import { Trash2Icon, LogIn, ShoppingCart, ArrowRight } from "lucide-react";
 import Image from "next/image";
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useDispatch, useSelector } from "react-redux";
 
 export default function Cart() {
 
     const currency = process.env.NEXT_PUBLIC_CURRENCY_SYMBOL || '$';
-    
+
     const { cartItems } = useSelector(state => state.cart);
+    const { isAuthenticated } = useSelector(state => state.auth);
     const products = useSelector(state => state.product.list);
 
     const dispatch = useDispatch();
@@ -45,6 +47,27 @@ export default function Cart() {
             createCartArray();
         }
     }, [cartItems, products]);
+
+    // Unauthenticated user prompt
+    if (!isAuthenticated) {
+        return (
+            <div className="min-h-[75vh] mx-6 flex flex-col items-center justify-center text-center px-4">
+                <div className="w-16 h-16 rounded-full bg-indigo-50 border border-indigo-100 flex items-center justify-center mb-4 text-indigo-600">
+                    <LogIn size={28} />
+                </div>
+                <h1 className="text-2xl sm:text-3xl font-bold text-slate-800">Please Login to see your cart items</h1>
+                <p className="text-slate-500 text-sm mt-2 max-w-md">
+                    Sign in to view items in your shopping cart, checkout, or track your orders.
+                </p>
+                <Link
+                    href="/login?redirect=/cart"
+                    className="mt-6 inline-flex items-center gap-2 px-6 py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-medium rounded-full text-sm transition shadow-sm cursor-pointer"
+                >
+                    Login to Your Account <ArrowRight size={16} />
+                </Link>
+            </div>
+        )
+    }
 
     return cartArray.length > 0 ? (
         <div className="min-h-screen mx-6 text-slate-800">
@@ -83,7 +106,7 @@ export default function Cart() {
                                         </td>
                                         <td className="text-center">{currency}{(item.price * item.quantity).toLocaleString()}</td>
                                         <td className="text-center max-md:hidden">
-                                            <button onClick={() => handleDeleteItemFromCart(item.id)} className=" text-red-500 hover:bg-red-50 p-2.5 rounded-full active:scale-95 transition-all">
+                                            <button onClick={() => handleDeleteItemFromCart(item.id)} className=" text-red-500 hover:bg-red-50 p-2.5 rounded-full active:scale-95 transition-all cursor-pointer">
                                                 <Trash2Icon size={18} />
                                             </button>
                                         </td>
@@ -97,8 +120,20 @@ export default function Cart() {
             </div>
         </div>
     ) : (
-        <div className="min-h-[80vh] mx-6 flex items-center justify-center text-slate-400">
-            <h1 className="text-2xl sm:text-4xl font-semibold">Your cart is empty</h1>
+        <div className="min-h-[75vh] mx-6 flex flex-col items-center justify-center text-center px-4">
+            <div className="w-16 h-16 rounded-full bg-slate-100 flex items-center justify-center mb-4 text-slate-400">
+                <ShoppingCart size={28} />
+            </div>
+            <h1 className="text-2xl sm:text-3xl font-semibold text-slate-700">Your cart is empty</h1>
+            <p className="text-slate-400 text-sm mt-2 max-w-md">
+                Looks like you haven't added anything to your cart yet. Explore our marketplace!
+            </p>
+            <Link
+                href="/shop"
+                className="mt-6 inline-flex items-center gap-2 px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-medium rounded-full text-sm transition cursor-pointer"
+            >
+                Browse Products <ArrowRight size={16} />
+            </Link>
         </div>
     )
 }
