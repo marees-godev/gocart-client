@@ -52,11 +52,6 @@ const ROLE_CONFIGS = {
             { icon: ShieldCheck, text: '100% secure encrypted checkout', color: 'bg-indigo-500/20 text-indigo-300' },
             { icon: CheckCircle2, text: 'Verified customer reviews & instant returns', color: 'bg-amber-500/20 text-amber-300' },
         ],
-        altLinks: [
-            { text: 'Merchant Portal', href: '/merchant/login', label: 'Are you a seller?' },
-            { text: 'Delivery Hub', href: '/delivery/login', label: 'Delivery partner?' },
-            { text: 'Admin Console', href: `${process.env.NEXT_PUBLIC_ADMIN_URL || 'http://localhost:3001'}/login`, label: 'Administrator?' },
-        ],
     },
     MERCHANT: {
         id: 'MERCHANT',
@@ -76,11 +71,6 @@ const ROLE_CONFIGS = {
             { icon: DollarSign, text: 'Direct scheduled bank account payouts', color: 'bg-emerald-500/20 text-emerald-300' },
             { icon: ShieldCheck, text: 'Seller protection & dispute resolution', color: 'bg-amber-500/20 text-amber-300' },
         ],
-        altLinks: [
-            { text: 'Customer Login', href: '/login', label: 'Looking to shop?' },
-            { text: 'Delivery Hub', href: '/delivery/login', label: 'Delivery partner?' },
-            { text: 'Admin Console', href: `${process.env.NEXT_PUBLIC_ADMIN_URL || 'http://localhost:3001'}/login`, label: 'Administrator?' },
-        ],
     },
     DELIVERY_PARTNER: {
         id: 'DELIVERY_PARTNER',
@@ -99,11 +89,6 @@ const ROLE_CONFIGS = {
             { icon: DollarSign, text: 'Fast weekly & daily earnings payouts', color: 'bg-amber-500/20 text-amber-400' },
             { icon: Clock, text: 'Complete schedule flexibility — drive anytime', color: 'bg-blue-500/20 text-blue-300' },
             { icon: ShieldCheck, text: 'Dedicated 24/7 courier support & insurance', color: 'bg-emerald-500/20 text-emerald-300' },
-        ],
-        altLinks: [
-            { text: 'Customer Login', href: '/login', label: 'Looking to shop?' },
-            { text: 'Merchant Portal', href: '/merchant/login', label: 'Are you a seller?' },
-            { text: 'Admin Console', href: `${process.env.NEXT_PUBLIC_ADMIN_URL || 'http://localhost:3001'}/login`, label: 'Administrator?' },
         ],
     },
 }
@@ -849,20 +834,6 @@ function AuthFormInner({
                                     </p>
                                 )}
                             </div>
-
-                            {/* Dedicated Portal Alternative Links */}
-                            {activeConfig.altLinks && activeConfig.altLinks.length > 0 && (
-                                <div className="mt-6 pt-4 border-t border-dashed border-slate-200 flex flex-wrap items-center justify-center gap-x-4 gap-y-2 text-xs text-slate-500">
-                                    {activeConfig.altLinks.map((alt, idx) => (
-                                        <span key={idx} className="flex items-center gap-1.5">
-                                            <span>{alt.label}</span>
-                                            <Link href={alt.href} className="font-semibold text-slate-800 hover:text-green-600 underline transition">
-                                                {alt.text} &rarr;
-                                            </Link>
-                                        </span>
-                                    ))}
-                                </div>
-                            )}
                         </>
                     )}
 
