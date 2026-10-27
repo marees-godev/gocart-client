@@ -40,10 +40,10 @@ export default function MerchantPortalLanding() {
 
                         <div className="flex flex-wrap items-center gap-4 pt-4">
                             <Link
-                                href="/store"
+                                href="/merchant/login"
                                 className="inline-flex items-center gap-2 px-7 py-3 rounded-xl bg-green-500 hover:bg-green-600 text-slate-950 font-bold text-sm shadow-lg transition active:scale-95"
                             >
-                                <Store size={18} /> Enter Merchant Dashboard
+                                <Store size={18} /> Sign In to Merchant Portal
                             </Link>
                             <Link
                                 href="/create-store"

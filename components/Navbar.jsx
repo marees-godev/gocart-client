@@ -1,9 +1,10 @@
 'use client'
-import { Search, ShoppingCart } from "lucide-react";
+import { Search, ShoppingCart, LayoutDashboard, ShieldCheck, User as UserIcon, LogOut, Truck } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { useDispatch, useSelector } from "react-redux";
+import { logout } from "@/lib/features/auth/authSlice";
 
 const Navbar = () => {
 
@@ -50,6 +51,14 @@ const Navbar = () => {
                                 className="flex items-center gap-1.5 px-3.5 py-1.5 bg-purple-50 text-purple-700 border border-purple-200 rounded-full text-xs font-semibold hover:bg-purple-100 transition"
                             >
                                 <ShieldCheck size={14} /> Admin Console
+                            </Link>
+                        )}
+                        {isAuthenticated && user?.role === 'DELIVERY_PARTNER' && (
+                            <Link
+                                href="/orders"
+                                className="flex items-center gap-1.5 px-3.5 py-1.5 bg-amber-50 text-amber-700 border border-amber-200 rounded-full text-xs font-semibold hover:bg-amber-100 transition"
+                            >
+                                <Truck size={14} /> Delivery Hub
                             </Link>
                         )}
                         {/* Auth Buttons */}

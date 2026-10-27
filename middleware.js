@@ -18,7 +18,8 @@ export function middleware(request) {
     const isStoreRoute = pathname.startsWith('/store');
 
     if (!token && (isAdminRoute || isStoreRoute)) {
-        const loginUrl = new URL('/login', request.url)
+        const targetPath = isStoreRoute ? '/merchant/login' : '/login'
+        const loginUrl = new URL(targetPath, request.url)
         loginUrl.searchParams.set('redirect', pathname)
         return NextResponse.redirect(loginUrl)
     }
@@ -27,12 +28,17 @@ export function middleware(request) {
         const payload = decodeJwtPayload(token)
 
         if (!payload) {
-            const loginUrl = new URL('/login', request.url)
-            return NextResponse.redirect(log)
+            const targetPath = isStoreRoute ? '/merchant/login' : '/login'
+            const loginUrl = new URL(targetPath, request.url)
+            return NextResponse.redirect(loginUrl)
         }
 
         if (isAdminRoute && payload.role !== 'ADMIN') {
             return NextResponse.redirect(new URL('/', request.url))
+        }
+
+        if (isStoreRoute && payload.role !== 'MERCHANT' && payload.role !== 'ADMIN') {
+            return NextResponse.redirect(new URL('/merchant', request.url))
         }
     }
 
