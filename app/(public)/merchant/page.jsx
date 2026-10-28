@@ -1,6 +1,6 @@
 'use client'
 
-import React from 'react'
+import React, { useEffect, useState } from 'react'
 import Link from 'next/link'
 import {
     Store,
@@ -12,10 +12,90 @@ import {
     Users,
     Sparkles,
     BarChart3,
-    Package
+    Package,
+    AlertCircle,
+    Send
 } from 'lucide-react'
+import { graphqlRequest } from '@/lib/apiClient'
+import { GET_USER_STORE_QUERY } from '@/lib/graphql/store'
+import DraftStoreReviewCard from '@/components/store/DraftStoreReviewCard'
 
 export default function MerchantPortalLanding() {
+    const [userStore, setUserStore] = useState(null)
+    const [loadingStore, setLoadingStore] = useState(true)
+
+    useEffect(() => {
+        const fetchUserStore = async () => {
+            try {
+                const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null
+                if (!token) {
+                    setLoadingStore(false)
+                    return
+                }
+                const res = await graphqlRequest(GET_USER_STORE_QUERY).catch(() => null)
+                let store = res?.myStore
+
+                if (!store || !store.id) {
+                    try {
+                        const base64Url = token.split('.')[1]
+                        if (base64Url) {
+                            const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/')
+                            const payload = JSON.parse(atob(base64))
+                            const merchantId = payload.merchant_id || payload.user_id || payload.sub
+                            if (merchantId) {
+                                const fallbackRes = await graphqlRequest(
+                                    `query GetStoresByMerchant($merchantId: ID) {
+                                        stores(merchantId: $merchantId, limit: 1) {
+                                            stores {
+                                                id
+                                                merchantId
+                                                name
+                                                slug
+                                                approvalStatus
+                                                rejectionReason
+                                                businessEmail
+                                                businessPhone
+                                                description
+                                                logoUrl
+                                                address
+                                                isVacationMode
+                                                isPublished
+                                                kycStatus
+                                                gstin
+                                                avgStoreRating
+                                                createdAt
+                                                updatedAt
+                                            }
+                                        }
+                                    }`,
+                                    { merchantId }
+                                ).catch(() => null)
+
+                                const fallbackStore = fallbackRes?.stores?.stores?.[0]
+                                if (fallbackStore) {
+                                    store = fallbackStore
+                                }
+                            }
+                        }
+                    } catch (fallbackErr) {
+                        console.warn("Fallback query stores error in merchant page:", fallbackErr)
+                    }
+                }
+
+                if (store) {
+                    setUserStore(store)
+                }
+            } catch (e) {
+                console.error("Failed to fetch merchant store:", e)
+            } finally {
+                setLoadingStore(false)
+            }
+        }
+        fetchUserStore()
+    }, [])
+
+    const isDraft = userStore?.approvalStatus === 'DRAFT' || userStore?.approvalStatus === 'draft'
+
     return (
         <div className="min-h-screen bg-slate-50/50 py-12 px-4 sm:px-6 lg:px-8">
             <div className="max-w-6xl mx-auto space-y-16">
@@ -39,21 +119,76 @@ export default function MerchantPortalLanding() {
                         </p>
 
                         <div className="flex flex-wrap items-center gap-4 pt-4">
-                            <Link
-                                href="/merchant/login"
-                                className="inline-flex items-center gap-2 px-7 py-3 rounded-xl bg-green-500 hover:bg-green-600 text-slate-950 font-bold text-sm shadow-lg transition active:scale-95"
-                            >
-                                <Store size={18} /> Sign In to Merchant Portal
-                            </Link>
-                            <Link
-                                href="/create-store"
-                                className="inline-flex items-center gap-2 px-7 py-3 rounded-xl bg-white/10 hover:bg-white/20 text-white font-semibold text-sm border border-white/20 transition active:scale-95"
-                            >
-                                Register New Store <ArrowRight size={16} />
-                            </Link>
+                            {userStore ? (
+                                <>
+                                    <Link
+                                        href="/store"
+                                        className="inline-flex items-center gap-2 px-7 py-3 rounded-xl bg-green-500 hover:bg-green-600 text-slate-950 font-bold text-sm shadow-lg transition active:scale-95"
+                                    >
+                                        <Store size={18} /> Open Merchant Portal ({userStore.name})
+                                    </Link>
+                                    {isDraft && (
+                                        <a
+                                            href="#draft-review-section"
+                                            className="inline-flex items-center gap-2 px-6 py-3 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-sm shadow-lg transition active:scale-95"
+                                        >
+                                            <AlertCircle size={17} /> Review & Submit Draft
+                                        </a>
+                                    )}
+                                </>
+                            ) : (
+                                <>
+                                    <Link
+                                        href="/merchant/login"
+                                        className="inline-flex items-center gap-2 px-7 py-3 rounded-xl bg-green-500 hover:bg-green-600 text-slate-950 font-bold text-sm shadow-lg transition active:scale-95"
+                                    >
+                                        <Store size={18} /> Sign In to Merchant Portal
+                                    </Link>
+                                    <Link
+                                        href="/create-store"
+                                        className="inline-flex items-center gap-2 px-7 py-3 rounded-xl bg-white/10 hover:bg-white/20 text-white font-semibold text-sm border border-white/20 transition active:scale-95"
+                                    >
+                                        Register New Store <ArrowRight size={16} />
+                                    </Link>
+                                </>
+                            )}
                         </div>
                     </div>
                 </div>
+
+                {/* Draft Store Review Section (if logged-in merchant has a draft store) */}
+                {isDraft && (
+                    <div id="draft-review-section" className="space-y-4 pt-2">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-200 pb-3">
+                            <div>
+                                <h2 className="text-xl sm:text-2xl font-bold text-slate-900">
+                                    Your Drafted Store Application
+                                </h2>
+                                <p className="text-xs sm:text-sm text-slate-500">
+                                    Review your store identity, contact info, and address before submitting for administrator review.
+                                </p>
+                            </div>
+                            <Link
+                                href="/store"
+                                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold transition self-start sm:self-auto"
+                            >
+                                <Store size={14} /> Open Portal Dashboard
+                            </Link>
+                        </div>
+
+                        <DraftStoreReviewCard
+                            store={userStore}
+                            showEditLink={true}
+                            onSubmitted={(newApproval, updatedStore) => {
+                                setUserStore(prev => ({
+                                    ...prev,
+                                    approvalStatus: newApproval,
+                                    ...(updatedStore || {})
+                                }))
+                            }}
+                        />
+                    </div>
+                )}
 
                 {/* Key Merchant Features Grid */}
                 <div className="space-y-6">

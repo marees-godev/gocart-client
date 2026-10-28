@@ -1,7 +1,24 @@
 'use client'
 import { useEffect, useState } from "react"
 import Loading from "@/components/Loading"
-import { orderDummyData } from "@/assets/assets"
+import { graphqlRequest } from "@/lib/apiClient"
+import { Package, ShoppingBag } from "lucide-react"
+
+const LIST_MY_ORDERS_QUERY = `
+  query ListMyOrders($limit: Int, $offset: Int) {
+    listMyOrders(limit: $limit, offset: $offset) {
+      orders {
+        id
+        totalAmount
+        status
+        orderStatus
+        paymentStatus
+        createdAt
+      }
+      total
+    }
+  }
+`;
 
 export default function StoreOrders() {
     const [orders, setOrders] = useState([])
@@ -9,16 +26,23 @@ export default function StoreOrders() {
     const [selectedOrder, setSelectedOrder] = useState(null)
     const [isModalOpen, setIsModalOpen] = useState(false)
 
-
     const fetchOrders = async () => {
-       setOrders(orderDummyData)
-       setLoading(false)
+        try {
+            const data = await graphqlRequest(LIST_MY_ORDERS_QUERY, { limit: 50, offset: 0 }).catch(() => null)
+            if (data?.listMyOrders?.orders?.length > 0) {
+                setOrders(data.listMyOrders.orders)
+            } else {
+                setOrders([])
+            }
+        } catch {
+            setOrders([])
+        } finally {
+            setLoading(false)
+        }
     }
 
     const updateOrderStatus = async (orderId, status) => {
         // Logic to update the status of an order
-
-
     }
 
     const openModal = (order) => {
@@ -41,7 +65,15 @@ export default function StoreOrders() {
         <>
             <h1 className="text-2xl text-slate-500 mb-5">Store <span className="text-slate-800 font-medium">Orders</span></h1>
             {orders.length === 0 ? (
-                <p>No orders found</p>
+                <div className="bg-white border border-slate-200 rounded-3xl p-12 text-center space-y-3 shadow-sm max-w-4xl">
+                    <div className="w-14 h-14 rounded-2xl bg-slate-100 text-slate-400 flex items-center justify-center mx-auto">
+                        <ShoppingBag size={28} />
+                    </div>
+                    <h2 className="text-lg font-bold text-slate-800">No Store Orders Yet</h2>
+                    <p className="text-xs text-slate-500 max-w-md mx-auto">
+                        When shoppers purchase items from your storefront, new incoming orders and dispatch requests will show up here.
+                    </p>
+                </div>
             ) : (
                 <div className="overflow-x-auto max-w-4xl rounded-md shadow border border-gray-200">
                     <table className="w-full text-sm text-left text-gray-600">

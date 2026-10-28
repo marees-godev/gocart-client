@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import Image from 'next/image'
 import {
     Store,
@@ -16,37 +16,71 @@ import {
     ShieldCheck,
     CreditCard,
     ToggleLeft,
-    ToggleRight
+    ToggleRight,
+    Send,
+    CheckCircle2,
+    XCircle,
+    Globe,
+    ExternalLink
 } from 'lucide-react'
-import { assets, dummyStoreData } from '@/assets/assets'
+import { useStore } from '@/components/store/StoreLayout'
+import { graphqlRequest } from '@/lib/apiClient'
+import {
+    UPDATE_STORE_MUTATION,
+    PUBLISH_STORE_MUTATION,
+    UNPUBLISH_STORE_MUTATION
+} from '@/lib/graphql/store'
+import toast from 'react-hot-toast'
 
 export default function MerchantStoreSettings() {
+    const { storeInfo, refetchStore, submittingStatus, submitDraftStore } = useStore()
     const [activeTab, setActiveTab] = useState('general') // 'general' | 'payout' | 'policies'
+    const [saving, setSaving] = useState(false)
+    const [togglingPublish, setTogglingPublish] = useState(false)
 
-    // Form state (Ready for JS / API integration)
+    // Form state initialized from merchant's actual store
     const [storeData, setStoreData] = useState({
-        name: dummyStoreData?.name || 'Happy Shop',
-        username: dummyStoreData?.username || 'happyshop',
-        email: dummyStoreData?.email || 'happyshop@example.com',
-        contact: dummyStoreData?.contact || '+1 (555) 019-2834',
-        description: dummyStoreData?.description || '',
-        address: dummyStoreData?.address || '123 Market Street, Suite 500, New York, NY 10001',
+        name: '',
+        username: '',
+        email: '',
+        contact: '',
+        description: '',
+        address: '',
         city: 'New York',
         state: 'NY',
         zip: '10001',
         country: 'United States',
-        taxId: 'US-984729104',
-        logo: dummyStoreData?.logo || null,
+        taxId: '',
+        logo: null,
         banner: null,
         isVacationMode: false,
-        vacationMessage: "We're currently taking a short break. Orders will resume next Monday!",
+        vacationMessage: "We're currently taking a short break. Orders will resume shortly!",
         currency: 'USD ($)',
         payoutMethod: 'bank_transfer',
-        accountHolderName: 'Happy Shop LLC',
-        bankName: 'JPMorgan Chase',
-        accountNumber: '••••••••8921',
-        routingNumber: '021000021'
+        accountHolderName: '',
+        bankName: '',
+        accountNumber: '',
+        routingNumber: ''
     })
+
+    // Sync form state when storeInfo is loaded/refetched
+    useEffect(() => {
+        if (storeInfo) {
+            setStoreData(prev => ({
+                ...prev,
+                name: storeInfo.name || '',
+                username: storeInfo.slug || '',
+                email: storeInfo.businessEmail || '',
+                contact: storeInfo.businessPhone || '',
+                description: storeInfo.description || '',
+                address: storeInfo.address || '',
+                logo: storeInfo.logoUrl || null,
+                isVacationMode: Boolean(storeInfo.isVacationMode),
+                taxId: storeInfo.gstin || prev.taxId,
+                accountHolderName: prev.accountHolderName || storeInfo.name || '',
+            }))
+        }
+    }, [storeInfo])
 
     const handleChange = (e) => {
         const { name, value, type, checked } = e.target
@@ -56,22 +90,188 @@ export default function MerchantStoreSettings() {
         }))
     }
 
-    const handleSubmit = (e) => {
-        e.preventDefault()
-        // TODO: Integrate with your backend API update endpoint
-        console.log('Saved Merchant Store Settings:', storeData)
+    const handleTogglePublish = async () => {
+        if (!storeInfo?.id) return
+        setTogglingPublish(true)
+        try {
+            if (storeInfo.isPublished) {
+                await graphqlRequest(UNPUBLISH_STORE_MUTATION, { id: storeInfo.id })
+                toast.success("Storefront unpublished from public directory")
+            } else {
+                await graphqlRequest(PUBLISH_STORE_MUTATION, { id: storeInfo.id })
+                toast.success("Storefront published live to shoppers!")
+            }
+            if (refetchStore) await refetchStore()
+        } catch (err) {
+            console.error("Error toggling store publish state:", err)
+            toast.error(err.message || "Failed to update publish state")
+        } finally {
+            setTogglingPublish(false)
+        }
     }
 
+    const handleSubmit = async (e) => {
+        e.preventDefault()
+        if (!storeInfo?.id) {
+            toast.error("No store record found to update")
+            return
+        }
+
+        setSaving(true)
+        try {
+            const cleanSlug = (storeData.username || storeData.name)
+                .toLowerCase()
+                .trim()
+                .replace(/[^a-z0-9]/g, '-')
+                .replace(/-+/g, '-')
+
+            await graphqlRequest(UPDATE_STORE_MUTATION, {
+                input: {
+                    id: storeInfo.id,
+                    name: storeData.name.trim(),
+                    slug: cleanSlug,
+                    description: storeData.description.trim(),
+                    businessEmail: storeData.email.trim(),
+                    businessPhone: storeData.contact.trim(),
+                    address: storeData.address.trim(),
+                    logoUrl: typeof storeData.logo === 'string' ? storeData.logo : "",
+                    isVacationMode: Boolean(storeData.isVacationMode)
+                }
+            })
+
+            toast.success("Store settings updated successfully!")
+            if (refetchStore) await refetchStore()
+        } catch (err) {
+            console.error("Failed to update store settings:", err)
+            toast.error(err.message || "Failed to save settings")
+        } finally {
+            setSaving(false)
+        }
+    }
+
+    const approvalStatus = storeInfo?.approvalStatus || 'DRAFT'
+    const isDraft = approvalStatus === 'DRAFT' || approvalStatus === 'draft'
+    const isApproved = approvalStatus === 'APPROVED' || approvalStatus === 'approved'
+    const isPending = approvalStatus === 'PENDING' || approvalStatus === 'pending'
+    const isRejected = approvalStatus === 'REJECTED' || approvalStatus === 'rejected'
+
     return (
-        <div className="text-slate-600 mb-28 max-w-5xl space-y-8">
+        <div className="text-slate-600 mb-28 max-w-5xl space-y-6">
             {/* Page Header */}
             <div>
                 <h1 className="text-2xl text-slate-500">
                     Store <span className="text-slate-800 font-medium">Settings</span>
                 </h1>
                 <p className="text-sm text-slate-400 mt-1">
-                    Manage your merchant profile, branding, payout accounts, and store preferences.
+                    Manage your merchant profile, branding, lifecycle status, and store operations.
                 </p>
+            </div>
+
+            {/* Store Status & Lifecycle Control Card */}
+            <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm space-y-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-100 pb-4">
+                    <div>
+                        <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">Store Approval Status</p>
+                        <div className="flex items-center gap-2 mt-1">
+                            <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider ${
+                                isApproved
+                                    ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                                    : isDraft
+                                    ? 'bg-amber-100 text-amber-800 border border-amber-300'
+                                    : isRejected
+                                    ? 'bg-rose-100 text-rose-800 border border-rose-300'
+                                    : 'bg-blue-100 text-blue-800 border border-blue-300'
+                            }`}>
+                                {isApproved ? '● Active & Approved' : `Status: ${approvalStatus}`}
+                            </span>
+
+                            {storeInfo?.slug && isApproved && (
+                                <a
+                                    href={`/shop/${storeInfo.slug}`}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="inline-flex items-center gap-1 text-xs font-semibold text-green-600 hover:underline"
+                                >
+                                    /shop/{storeInfo.slug} <ExternalLink size={12} />
+                                </a>
+                            )}
+                        </div>
+                    </div>
+
+                    {/* Action button based on status */}
+                    <div className="flex items-center gap-3">
+                        {isDraft && (
+                            <button
+                                type="button"
+                                onClick={() => submitDraftStore(storeInfo?.id)}
+                                disabled={submittingStatus}
+                                className="inline-flex items-center gap-1.5 px-5 py-2.5 rounded-xl bg-green-600 hover:bg-green-700 text-white font-semibold text-xs shadow-md transition active:scale-95 disabled:opacity-50"
+                            >
+                                <Send size={14} />
+                                {submittingStatus ? "Submitting..." : "Submit Store for Admin Review"}
+                            </button>
+                        )}
+
+                        {isRejected && (
+                            <button
+                                type="button"
+                                onClick={() => submitDraftStore(storeInfo?.id)}
+                                disabled={submittingStatus}
+                                className="inline-flex items-center gap-1.5 px-5 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-semibold text-xs shadow-md transition active:scale-95 disabled:opacity-50"
+                            >
+                                <Send size={14} />
+                                {submittingStatus ? "Submitting..." : "Re-submit Application"}
+                            </button>
+                        )}
+
+                        {isApproved && (
+                            <button
+                                type="button"
+                                onClick={handleTogglePublish}
+                                disabled={togglingPublish}
+                                className={`inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-semibold border transition ${
+                                    storeInfo?.isPublished
+                                        ? 'bg-emerald-50 text-emerald-800 border-emerald-300 hover:bg-emerald-100'
+                                        : 'bg-slate-100 text-slate-700 border-slate-300 hover:bg-slate-200'
+                                }`}
+                            >
+                                <Globe size={14} />
+                                {togglingPublish
+                                    ? "Updating..."
+                                    : storeInfo?.isPublished
+                                    ? "Storefront Live (Click to Unpublish)"
+                                    : "Storefront Hidden (Click to Publish)"}
+                            </button>
+                        )}
+                    </div>
+                </div>
+
+                {isDraft && (
+                    <div className="text-xs text-amber-800 bg-amber-50 p-3.5 rounded-xl border border-amber-200 flex items-start gap-2.5">
+                        <AlertCircle size={16} className="text-amber-600 shrink-0 mt-0.5" />
+                        <p>
+                            <strong>Action Required:</strong> Your store application is currently in <strong>Draft</strong> status. GoCart administrators cannot view or approve draft applications. Submit your application so our team can approve your store and activate public sales.
+                        </p>
+                    </div>
+                )}
+
+                {isPending && (
+                    <div className="text-xs text-blue-800 bg-blue-50 p-3.5 rounded-xl border border-blue-200 flex items-start gap-2.5">
+                        <Clock size={16} className="text-blue-600 shrink-0 mt-0.5" />
+                        <p>
+                            <strong>Application in Review:</strong> Your store has been submitted to administrators. You can configure your catalog items while waiting for administrator approval.
+                        </p>
+                    </div>
+                )}
+
+                {isRejected && (
+                    <div className="text-xs text-rose-800 bg-rose-50 p-3.5 rounded-xl border border-rose-200 flex items-start gap-2.5">
+                        <XCircle size={16} className="text-rose-600 shrink-0 mt-0.5" />
+                        <p>
+                            <strong>Application Rejected:</strong> {storeInfo?.rejectionReason || "Please review your store information and re-submit your application."}
+                        </p>
+                    </div>
+                )}
             </div>
 
             {/* Navigation Tabs */}
@@ -112,6 +312,7 @@ export default function MerchantStoreSettings() {
             </div>
 
             <form onSubmit={handleSubmit} className="space-y-8">
+
                 
                 {/* TAB 1: GENERAL STORE PROFILE */}
                 {activeTab === 'general' && (
@@ -407,9 +608,10 @@ export default function MerchantStoreSettings() {
                 <div className="flex items-center justify-end gap-4">
                     <button
                         type="submit"
-                        className="flex items-center gap-2 px-8 py-3 bg-slate-900 hover:bg-slate-800 text-white font-medium text-sm rounded-xl shadow-md active:scale-95 transition-all"
+                        disabled={saving}
+                        className="flex items-center gap-2 px-8 py-3 bg-slate-900 hover:bg-slate-800 text-white font-medium text-sm rounded-xl shadow-md active:scale-95 transition-all disabled:opacity-50"
                     >
-                        <Save size={16} /> Save Settings
+                        <Save size={16} /> {saving ? "Saving Settings..." : "Save Settings"}
                     </button>
                 </div>
             </form>

@@ -11,13 +11,43 @@ import {
     CheckCircle,
     CornerDownRight
 } from 'lucide-react'
-import { dummyRatingsData } from '@/assets/assets'
+import { useStore } from '@/components/store/StoreLayout'
+import { graphqlRequest } from '@/lib/apiClient'
+import { GET_PRODUCTS_QUERY } from '@/lib/graphql/product'
+import { useEffect } from 'react'
 
 export default function MerchantReviews() {
-    const [reviews, setReviews] = useState(dummyRatingsData || [])
+    const { storeInfo } = useStore()
+    const [reviews, setReviews] = useState([])
     const [filterStar, setFilterStar] = useState('ALL')
     const [replyingTo, setReplyingTo] = useState(null)
     const [replyText, setReplyText] = useState('')
+
+    useEffect(() => {
+        const fetchReviews = async () => {
+            if (!storeInfo?.id) return
+            try {
+                const prodRes = await graphqlRequest(GET_PRODUCTS_QUERY, {
+                    storeId: storeInfo.id,
+                    limit: 100
+                }).catch(() => null)
+
+                const storeProducts = prodRes?.products?.products || []
+                const collectedRatings = []
+                storeProducts.forEach(p => {
+                    if (Array.isArray(p.ratings)) {
+                        p.ratings.forEach(r => {
+                            collectedRatings.push({ ...r, product: p })
+                        })
+                    }
+                })
+                setReviews(collectedRatings)
+            } catch {
+                setReviews([])
+            }
+        }
+        fetchReviews()
+    }, [storeInfo?.id])
 
     // Filter reviews
     const filteredReviews = reviews.filter((r) => {
