@@ -1,17 +1,23 @@
 import { PlusIcon, SquarePenIcon, XIcon, MapPin, CheckCircle2, ChevronDown } from 'lucide-react';
 import React, { useState, useEffect } from 'react'
-import AddressModal from './AddressModal';
-import { useSelector } from 'react-redux';
+import AddressModal, { resolveUserId } from './AddressModal';
+import { useSelector, useDispatch } from 'react-redux';
 import toast from 'react-hot-toast';
 import { useRouter } from 'next/navigation';
+import { graphqlRequest } from '@/lib/apiClient';
+import { GET_USER_ADDRESSES_QUERY } from '@/lib/graphql/address';
+import { setAddresses, normalizeAddress } from '@/lib/features/address/addressSlice';
 
 const OrderSummary = ({ totalPrice, items }) => {
 
     const currency = process.env.NEXT_PUBLIC_CURRENCY_SYMBOL || '$';
 
     const router = useRouter();
+    const dispatch = useDispatch();
 
+    const reduxUser = useSelector(state => state.auth?.user);
     const addressList = useSelector(state => state.address.list);
+    const userId = resolveUserId(null, reduxUser);
 
     const [paymentMethod, setPaymentMethod] = useState('COD');
     const [selectedAddress, setSelectedAddress] = useState(null);
@@ -19,12 +25,35 @@ const OrderSummary = ({ totalPrice, items }) => {
     const [couponCodeInput, setCouponCodeInput] = useState('');
     const [coupon, setCoupon] = useState('');
 
+    // Fetch user addresses from BE if user is logged in and list is empty
     useEffect(() => {
-        if (addressList.length > 0 && !selectedAddress) {
-            const defaultAddr = addressList.find(addr => addr.isDefault) || addressList[0];
-            setSelectedAddress(defaultAddr);
+        const fetchAddresses = async () => {
+            if (!userId) return;
+            try {
+                const res = await graphqlRequest(GET_USER_ADDRESSES_QUERY, { userId });
+                if (res?.userAddresses && res.userAddresses.length > 0) {
+                    const normalized = res.userAddresses.map(normalizeAddress);
+                    dispatch(setAddresses(normalized));
+                }
+            } catch (err) {
+                console.warn('Could not fetch addresses for checkout:', err);
+            }
+        };
+
+        if (addressList.length === 0 && userId) {
+            fetchAddresses();
         }
-    }, [addressList]);
+    }, [userId, addressList.length, dispatch]);
+
+    useEffect(() => {
+        if (addressList.length > 0) {
+            if (!selectedAddress || !addressList.some(a => String(a.id) === String(selectedAddress.id))) {
+                const defaultAddr = addressList.find(addr => addr.isDefault) || addressList[0];
+                setSelectedAddress(defaultAddr);
+            }
+        }
+    }, [addressList, selectedAddress]);
+
 
     const handleCouponCode = async (event) => {
         event.preventDefault();
@@ -189,10 +218,12 @@ const OrderSummary = ({ totalPrice, items }) => {
 
             {showAddressModal && (
                 <AddressModal 
-                    setShowAddressModal={setShowAddressModal} 
+                    setShowAddressModal={setShowAddressModal}
+                    userId={userId}
                     onSuccess={(newAddr) => setSelectedAddress(newAddr)}
                 />
             )}
+
 
         </div>
     )

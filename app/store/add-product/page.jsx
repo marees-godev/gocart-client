@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from "react"
+import { useEffect, useState, useRef } from "react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
 import { toast } from "react-hot-toast"
@@ -18,12 +18,22 @@ import {
     Tag,
     Building2,
     Info,
-    RefreshCw
+    RefreshCw,
+    UploadCloud,
+    Upload,
+    X,
+    Loader2,
+    Check,
+    ImagePlus
 } from "lucide-react"
 
 import { graphqlRequest } from "@/lib/apiClient"
 import { CREATE_PRODUCT_MUTATION, GET_CATEGORIES_QUERY } from "@/lib/graphql/product"
-import { GET_USER_STORE_QUERY } from "@/lib/graphql/store"
+import {
+    GET_USER_STORE_QUERY,
+    GET_MERCHANT_STORES_QUERY,
+    GENERATE_STORE_UPLOAD_URL_MUTATION
+} from "@/lib/graphql/store"
 
 const PRODUCT_STATUSES = [
     { value: 'DRAFT', label: 'Draft', desc: 'Saved privately, not visible on storefront' },
@@ -38,9 +48,18 @@ export default function StoreAddProduct() {
     const [loading, setLoading] = useState(false)
     const [fetchingInitial, setFetchingInitial] = useState(true)
 
-    // Store & Categories fetched from backend
+    // Stores & Categories fetched from backend
     const [categories, setCategories] = useState([])
+    const [stores, setStores] = useState([])
     const [activeStore, setActiveStore] = useState(null)
+
+    // Device upload state
+    const [uploadingMain, setUploadingMain] = useState(false)
+    const [uploadingGallery, setUploadingGallery] = useState(false)
+    const [mainDragActive, setMainDragActive] = useState(false)
+    const [imageInputMode, setImageInputMode] = useState('device') // 'device' | 'url'
+    const mainFileInputRef = useRef(null)
+    const galleryFileInputRef = useRef(null)
 
     // Form State
     const [formData, setFormData] = useState({
@@ -54,7 +73,7 @@ export default function StoreAddProduct() {
         tax: '0.00',
         status: 'DRAFT',
         imageUrl: '',
-        images: [''],
+        images: [],
     })
 
     // Variants State
@@ -71,7 +90,7 @@ export default function StoreAddProduct() {
         }
     ])
 
-    // Load Categories & Merchant's Store on mount
+    // Load Categories & Merchant's Stores on mount
     useEffect(() => {
         const fetchInitialData = async () => {
             setFetchingInitial(true)
@@ -80,21 +99,62 @@ export default function StoreAddProduct() {
                 const catRes = await graphqlRequest(GET_CATEGORIES_QUERY, { limit: 100 }).catch(() => null)
                 if (catRes?.categories?.categories?.length > 0) {
                     setCategories(catRes.categories.categories)
-                    // Preselect first category
                     setFormData(prev => ({ ...prev, categoryId: catRes.categories.categories[0].id }))
                 }
 
-                // 2. Fetch merchant store
+                // 2. Extract merchantId from JWT token
+                const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null
+                let merchantId = null
+                if (token) {
+                    try {
+                        const base64Url = token.split('.')[1]
+                        if (base64Url) {
+                            const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/')
+                            const payload = JSON.parse(atob(base64))
+                            merchantId = payload.merchant_id || payload.user_id || payload.sub
+                        }
+                    } catch {}
+                }
+
+                // 3. Fetch stores for the merchant
+                const storesMap = new Map()
+
+                // Query myStore
                 const storeRes = await graphqlRequest(GET_USER_STORE_QUERY).catch(() => null)
                 if (storeRes?.myStore?.id) {
-                    setActiveStore(storeRes.myStore)
-                    setFormData(prev => ({ ...prev, storeId: storeRes.myStore.id }))
+                    storesMap.set(storeRes.myStore.id, storeRes.myStore)
+                    if (!merchantId && storeRes.myStore.merchantId) {
+                        merchantId = storeRes.myStore.merchantId
+                    }
+                }
+
+                // Query stores by merchantId
+                if (merchantId) {
+                    const merchantStoresRes = await graphqlRequest(
+                        GET_MERCHANT_STORES_QUERY,
+                        { merchantId, limit: 100 }
+                    ).catch(() => null)
+
+                    if (merchantStoresRes?.stores?.stores?.length > 0) {
+                        merchantStoresRes.stores.stores.forEach(st => {
+                            if (st && st.id) storesMap.set(st.id, st)
+                        })
+                    }
+                }
+
+                const loadedStores = Array.from(storesMap.values())
+                setStores(loadedStores)
+
+                if (loadedStores.length > 0) {
+                    const defaultStore = loadedStores[0]
+                    setActiveStore(defaultStore)
+                    setFormData(prev => ({ ...prev, storeId: defaultStore.id }))
                 } else {
                     setActiveStore(null)
                     setFormData(prev => ({ ...prev, storeId: '' }))
                 }
             } catch (err) {
-                console.error('Error fetching initial data:', err)
+                console.error('Error fetching initial data for add-product:', err)
             } finally {
                 setFetchingInitial(false)
             }
@@ -103,20 +163,200 @@ export default function StoreAddProduct() {
         fetchInitialData()
     }, [])
 
+    // Handler when user selects a store from dropdown
+    const handleStoreSelect = (storeId) => {
+        const found = stores.find(s => s.id === storeId) || null
+        setActiveStore(found)
+        setFormData(prev => ({ ...prev, storeId }))
+    }
+
+    // Helper: Upload a file from device (tries presigned S3 URL, falls back to base64 Data URL)
+    const uploadFileFromDevice = async (file) => {
+        if (!file) return null
+
+        if (!file.type.startsWith('image/')) {
+            toast.error(`${file.name} is not a valid image file`)
+            return null
+        }
+
+        if (file.size > 10 * 1024 * 1024) {
+            toast.error(`Image ${file.name} exceeds 10MB limit`)
+            return null
+        }
+
+        // Try presigned upload via backend
+        try {
+            const presignRes = await graphqlRequest(GENERATE_STORE_UPLOAD_URL_MUTATION, {
+                input: {
+                    imageType: 'product',
+                    filename: file.name.replace(/[^a-zA-Z0-9.-]/g, '_'),
+                    contentType: file.type || 'image/jpeg'
+                }
+            })
+
+            const uploadPayload = presignRes?.generateStoreUploadUrl
+            if (uploadPayload?.uploadUrl && uploadPayload?.publicUrl) {
+                const putRes = await fetch(uploadPayload.uploadUrl, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': file.type || 'image/jpeg' },
+                    body: file
+                })
+
+                if (putRes.ok) {
+                    return uploadPayload.publicUrl
+                }
+            }
+        } catch (uploadErr) {
+            // Presigned upload error or project paused; seamlessly fall back to Data URL
+        }
+
+        // Fallback: Read file as Data URL
+        return new Promise((resolve) => {
+            const reader = new FileReader()
+            reader.onload = (e) => resolve(e.target?.result || null)
+            reader.onerror = () => resolve(null)
+            reader.readAsDataURL(file)
+        })
+    }
+
+    // Handle Primary Image upload from device
+    const handleMainImageUpload = async (file) => {
+        if (!file) return
+        setUploadingMain(true)
+        try {
+            const resultUrl = await uploadFileFromDevice(file)
+            if (resultUrl) {
+                setFormData(prev => {
+                    const currentImages = [...prev.images]
+                    if (currentImages.length > 0) {
+                        currentImages[0] = resultUrl
+                    } else {
+                        currentImages.push(resultUrl)
+                    }
+                    return {
+                        ...prev,
+                        imageUrl: resultUrl,
+                        images: currentImages
+                    }
+                })
+                toast.success('Main product image uploaded from device!')
+            }
+        } catch (err) {
+            console.error('Failed to upload main image:', err)
+            toast.error('Failed to upload image from device')
+        } finally {
+            setUploadingMain(false)
+        }
+    }
+
+    // Handle Additional Gallery Images upload from device
+    const handleGalleryImagesUpload = async (fileList) => {
+        if (!fileList || fileList.length === 0) return
+        const files = Array.from(fileList)
+
+        setUploadingGallery(true)
+        let successCount = 0
+        try {
+            const uploadedUrls = []
+            for (const file of files) {
+                const url = await uploadFileFromDevice(file)
+                if (url) {
+                    uploadedUrls.push(url)
+                    successCount++
+                }
+            }
+
+            if (uploadedUrls.length > 0) {
+                setFormData(prev => {
+                    const currentImages = [...prev.images].filter(Boolean)
+                    // If main imageUrl was empty, set the first uploaded image as main
+                    const primaryUrl = prev.imageUrl || uploadedUrls[0]
+                    return {
+                        ...prev,
+                        imageUrl: primaryUrl,
+                        images: [...currentImages, ...uploadedUrls]
+                    }
+                })
+                toast.success(`Uploaded ${successCount} image${successCount > 1 ? 's' : ''} from device!`)
+            }
+        } catch (err) {
+            console.error('Failed to upload gallery images:', err)
+            toast.error('Failed to upload some gallery images')
+        } finally {
+            setUploadingGallery(false)
+        }
+    }
+
+    // Drag and drop handlers for main image
+    const handleMainDrag = (e) => {
+        e.preventDefault()
+        e.stopPropagation()
+        if (e.type === 'dragenter' || e.type === 'dragover') {
+            setMainDragActive(true)
+        } else if (e.type === 'dragleave') {
+            setMainDragActive(false)
+        }
+    }
+
+    const handleMainDrop = (e) => {
+        e.preventDefault()
+        e.stopPropagation()
+        setMainDragActive(false)
+        if (e.dataTransfer?.files && e.dataTransfer.files[0]) {
+            handleMainImageUpload(e.dataTransfer.files[0])
+        }
+    }
+
+    // Remove an image from the list
+    const handleRemoveImage = (index) => {
+        const updated = formData.images.filter((_, i) => i !== index)
+        setFormData(prev => ({
+            ...prev,
+            images: updated,
+            imageUrl: updated[0] || ''
+        }))
+    }
+
+    // Set an image as primary
+    const handleSetPrimary = (index) => {
+        const targetImage = formData.images[index]
+        if (!targetImage) return
+        const updated = [targetImage, ...formData.images.filter((_, i) => i !== index)]
+        setFormData(prev => ({
+            ...prev,
+            imageUrl: targetImage,
+            images: updated
+        }))
+        toast.success('Primary product image updated!')
+    }
+
+    // Image URL list handler
+    const handleAddImageUrl = (url) => {
+        if (!url || !url.trim()) return
+        const trimmed = url.trim()
+        setFormData(prev => ({
+            ...prev,
+            imageUrl: prev.imageUrl || trimmed,
+            images: [...prev.images, trimmed]
+        }))
+    }
+
     // Quick fill with sample data
     const handleFillSample = () => {
         const sampleCatId = categories.length > 0
             ? categories[0].id
             : 'bf62f1a4-10f5-4822-bded-4cfd5dfc0089'
 
-        if (!activeStore?.id) {
+        const chosenStore = activeStore || (stores.length > 0 ? stores[0] : null)
+
+        if (!chosenStore) {
             toast.error('You do not have a registered store yet. Please create one at /create-store first.', {
                 duration: 5000,
             })
         }
 
         setFormData({
-            storeId: activeStore?.id || '',
+            storeId: chosenStore?.id || '',
             categoryId: sampleCatId,
             sku: 'TSHIRT-BLK-001',
             name: 'Classic Crewneck T-Shirt',
@@ -144,8 +384,8 @@ export default function StoreAddProduct() {
             }
         ])
 
-        if (activeStore?.id) {
-            toast.success(`Filled sample data for your store "${activeStore.name}"!`)
+        if (chosenStore) {
+            toast.success(`Filled sample data for store "${chosenStore.name}"!`)
         }
     }
 
@@ -172,33 +412,6 @@ export default function StoreAddProduct() {
         }
 
         toast.success(`Generated SKU: ${generated}`)
-    }
-
-    // Image URL list handlers
-    const handleAddImageField = () => {
-        setFormData(prev => ({
-            ...prev,
-            images: [...prev.images, '']
-        }))
-    }
-
-    const handleUpdateImage = (index, value) => {
-        const updated = [...formData.images]
-        updated[index] = value
-        setFormData(prev => ({
-            ...prev,
-            images: updated,
-            imageUrl: index === 0 ? value : prev.imageUrl
-        }))
-    }
-
-    const handleRemoveImage = (index) => {
-        const updated = formData.images.filter((_, i) => i !== index)
-        setFormData(prev => ({
-            ...prev,
-            images: updated.length ? updated : [''],
-            imageUrl: updated[0] || ''
-        }))
     }
 
     // Variant handlers
@@ -230,17 +443,18 @@ export default function StoreAddProduct() {
         setVariants(prev => prev.filter((_, i) => i !== index))
     }
 
+
     // Submit handler
     const onSubmitHandler = async (e) => {
         e.preventDefault()
 
         // 1. Basic Validations
         if (!formData.storeId?.trim()) {
-            toast.error('Store ID is required. Please check your merchant account or enter a valid Store ID.')
+            toast.error('Please select a store from the dropdown')
             return
         }
         if (!formData.categoryId?.trim()) {
-            toast.error('Category is required. Please select or enter a Category ID.')
+            toast.error('Category is required. Please select or enter a Category.')
             return
         }
         if (!formData.sku?.trim()) {
@@ -261,8 +475,14 @@ export default function StoreAddProduct() {
         }
 
         // 2. Build clean images array
-        const validImages = formData.images.map(img => img.trim()).filter(Boolean)
-        const primaryImageUrl = formData.imageUrl.trim() || validImages[0] || ''
+        const validImages = formData.images.map(img => (img || '').trim()).filter(Boolean)
+        const primaryImageUrl = formData.imageUrl?.trim() || validImages[0] || ''
+
+        if (!primaryImageUrl && validImages.length === 0) {
+            toast.error('Please upload at least one product image from your device or provide an image URL.')
+            return
+        }
+
 
         // 3. Build variants payload
         let formattedVariants = []
@@ -375,8 +595,9 @@ export default function StoreAddProduct() {
                 </div>
             </div>
 
-            {!activeStore && !fetchingInitial && (
+            {stores.length === 0 && !fetchingInitial && (
                 <div className="mt-6 p-5 bg-amber-50 border border-amber-200/90 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 text-amber-900 shadow-sm">
+
                     <div className="flex items-start gap-3">
                         <AlertCircle className="text-amber-600 shrink-0 mt-0.5" size={22} />
                         <div>
@@ -468,40 +689,57 @@ export default function StoreAddProduct() {
                             )}
                         </div>
 
-                        {/* Store Selection / ID */}
+                        {/* Store Selection Dropdown (No ID displayed) */}
                         <div>
                             <div className="flex items-center justify-between mb-2">
                                 <label className="text-xs font-semibold uppercase tracking-wider text-slate-600">
-                                    Store ID <span className="text-rose-500">*</span>
+                                    Store <span className="text-rose-500">*</span>
                                 </label>
-                                {!activeStore && (
-                                    <Link
-                                        href="/create-store"
-                                        className="text-xs text-indigo-600 hover:text-indigo-800 font-medium inline-flex items-center gap-1"
-                                    >
-                                        Create a store &rarr;
-                                    </Link>
-                                )}
+                                <Link
+                                    href="/create-store"
+                                    className="text-xs text-indigo-600 hover:text-indigo-800 font-medium inline-flex items-center gap-1"
+                                >
+                                    + Add new store
+                                </Link>
                             </div>
-                            <div className="relative">
-                                <input
-                                    type="text"
-                                    required
-                                    value={formData.storeId}
-                                    onChange={e => setFormData({ ...formData, storeId: e.target.value })}
-                                    placeholder={activeStore ? activeStore.id : "e.g. your store UUID"}
-                                    className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 outline-none transition text-sm font-mono text-slate-900"
-                                />
-                                {activeStore && (
-                                    <span className="absolute right-3 top-3 text-xs bg-emerald-100 text-emerald-800 font-medium px-2 py-0.5 rounded-md flex items-center gap-1">
-                                        <Building2 size={12} /> {activeStore.name}
+
+                            <select
+                                required
+                                value={formData.storeId}
+                                onChange={e => handleStoreSelect(e.target.value)}
+                                className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 outline-none transition text-sm bg-white text-slate-900 cursor-pointer font-medium"
+                            >
+                                <option value="">-- Choose Store --</option>
+                                {stores.map(st => (
+                                    <option key={st.id} value={st.id}>
+                                        {st.name} {st.approvalStatus ? `(${st.approvalStatus})` : ''}
+                                    </option>
+                                ))}
+                            </select>
+
+                            {activeStore && (
+                                <div className="mt-2.5 p-3 rounded-xl bg-slate-50 border border-slate-200/90 flex items-center justify-between text-xs">
+                                    <div className="flex items-center gap-2">
+                                        <Building2 size={16} className="text-emerald-600 shrink-0" />
+                                        <span className="font-semibold text-slate-800">{activeStore.name}</span>
+                                        {activeStore.slug && (
+                                            <span className="text-slate-400 font-mono">@{activeStore.slug}</span>
+                                        )}
+                                    </div>
+                                    <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${
+                                        activeStore.approvalStatus === 'APPROVED'
+                                            ? 'bg-emerald-100 text-emerald-800'
+                                            : 'bg-amber-100 text-amber-800'
+                                    }`}>
+                                        {activeStore.approvalStatus || 'Active'}
                                     </span>
-                                )}
-                            </div>
+                                </div>
+                            )}
+
                             <p className="text-[11px] text-slate-500 mt-1">
-                                {activeStore
-                                    ? `Linked to your verified store "${activeStore.name}".`
-                                    : "Must be a store UUID created by and owned by your merchant account."}
+                                {stores.length > 1
+                                    ? `You have ${stores.length} registered stores. Select which store will sell this product.`
+                                    : "Select which of your merchant stores will offer this product."}
                             </p>
                         </div>
 
@@ -611,58 +849,313 @@ export default function StoreAddProduct() {
                     </div>
                 </div>
 
-                {/* 3. Media & Images Section */}
+                {/* 3. Media & Images Section (Upload from user device) */}
                 <div className="bg-white p-6 sm:p-8 rounded-2xl border border-slate-200 shadow-sm space-y-6">
-                    <div className="flex items-center justify-between pb-4 border-b border-slate-100">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-100">
                         <div className="flex items-center gap-2">
-                            <ImageIcon className="text-blue-600" size={20} />
-                            <h2 className="text-lg font-semibold text-slate-900">Product Images</h2>
+                            <ImageIcon className="text-blue-600" size={22} />
+                            <div>
+                                <h2 className="text-lg font-semibold text-slate-900">Product Images</h2>
+                                <p className="text-xs text-slate-500">Upload high quality product photos directly from your device</p>
+                            </div>
                         </div>
-                        <button
-                            type="button"
-                            onClick={handleAddImageField}
-                            className="text-xs text-blue-600 hover:text-blue-800 font-semibold inline-flex items-center gap-1"
-                        >
-                            <Plus size={14} /> Add Another URL
-                        </button>
+
+                        {/* Mode Toggle */}
+                        <div className="flex items-center gap-2">
+                            <button
+                                type="button"
+                                onClick={() => setImageInputMode('device')}
+                                className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition ${
+                                    imageInputMode === 'device'
+                                        ? 'bg-blue-50 text-blue-700 border border-blue-200'
+                                        : 'text-slate-600 hover:bg-slate-100'
+                                }`}
+                            >
+                                <UploadCloud size={13} className="inline mr-1" /> Upload from Device
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setImageInputMode('url')}
+                                className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition ${
+                                    imageInputMode === 'url'
+                                        ? 'bg-blue-50 text-blue-700 border border-blue-200'
+                                        : 'text-slate-600 hover:bg-slate-100'
+                                }`}
+                            >
+                                <Tag size={13} className="inline mr-1" /> Paste URL
+                            </button>
+                        </div>
                     </div>
 
-                    <div className="space-y-4">
-                        {formData.images.map((imgUrl, index) => (
-                            <div key={index} className="flex items-center gap-3">
-                                <div className="w-12 h-12 rounded-lg border border-slate-200 bg-slate-50 flex items-center justify-center shrink-0 overflow-hidden">
-                                    {imgUrl ? (
+                    {/* Hidden File Inputs */}
+                    <input
+                        type="file"
+                        ref={mainFileInputRef}
+                        accept="image/*"
+                        className="hidden"
+                        onChange={e => {
+                            if (e.target.files?.[0]) {
+                                handleMainImageUpload(e.target.files[0])
+                                e.target.value = ''
+                            }
+                        }}
+                    />
+                    <input
+                        type="file"
+                        ref={galleryFileInputRef}
+                        accept="image/*"
+                        multiple
+                        className="hidden"
+                        onChange={e => {
+                            if (e.target.files?.length) {
+                                handleGalleryImagesUpload(e.target.files)
+                                e.target.value = ''
+                            }
+                        }}
+                    />
+
+                    {/* SECTION A: Primary Product Image */}
+                    <div>
+                        <label className="block text-xs font-semibold uppercase tracking-wider text-slate-600 mb-2">
+                            Main Product Image <span className="text-rose-500">*</span>
+                        </label>
+
+                        {!formData.imageUrl ? (
+                            /* Drag & Drop Upload Zone */
+                            <div
+                                onDragEnter={handleMainDrag}
+                                onDragLeave={handleMainDrag}
+                                onDragOver={handleMainDrag}
+                                onDrop={handleMainDrop}
+                                onClick={() => mainFileInputRef.current?.click()}
+                                className={`relative border-2 border-dashed rounded-2xl p-8 flex flex-col items-center justify-center text-center cursor-pointer transition-all ${
+                                    mainDragActive
+                                        ? 'border-blue-500 bg-blue-50/50 ring-4 ring-blue-500/10'
+                                        : 'border-slate-300 hover:border-blue-400 bg-slate-50/60 hover:bg-slate-50'
+                                }`}
+                            >
+                                {uploadingMain ? (
+                                    <div className="py-6 flex flex-col items-center gap-2">
+                                        <Loader2 size={36} className="animate-spin text-blue-600" />
+                                        <p className="text-sm font-semibold text-slate-800">Processing image from device...</p>
+                                        <p className="text-xs text-slate-400">Optimizing and preparing for listing</p>
+                                    </div>
+                                ) : (
+                                    <>
+                                        <div className="w-14 h-14 rounded-2xl bg-blue-50 border border-blue-200/80 text-blue-600 flex items-center justify-center mb-3 shadow-sm">
+                                            <UploadCloud size={28} />
+                                        </div>
+                                        <h3 className="text-sm font-bold text-slate-800">
+                                            Click to browse or drag and drop image here
+                                        </h3>
+                                        <p className="text-xs text-slate-500 mt-1 max-w-sm">
+                                            Upload your primary product photo directly from your computer or phone.
+                                        </p>
+                                        <span className="mt-3 inline-flex items-center gap-1.5 px-4 py-2 bg-white border border-slate-200 text-xs font-semibold text-slate-700 rounded-xl shadow-sm hover:bg-slate-100 transition">
+                                            <Upload size={14} /> Choose Image from Device
+                                        </span>
+                                        <p className="text-[11px] text-slate-400 mt-2">
+                                            Supported: PNG, JPG, JPEG, WEBP (Max 10MB)
+                                        </p>
+                                    </>
+                                )}
+                            </div>
+                        ) : (
+                            /* Primary Image Preview Card */
+                            <div className="p-4 rounded-2xl border border-slate-200 bg-slate-50/50 flex flex-col sm:flex-row items-center justify-between gap-4">
+                                <div className="flex items-center gap-4 w-full sm:w-auto">
+                                    <div className="w-24 h-24 rounded-xl border border-slate-200 bg-white overflow-hidden shrink-0 shadow-sm">
                                         <img
-                                            src={imgUrl}
-                                            alt={`Preview ${index + 1}`}
+                                            src={formData.imageUrl}
+                                            alt="Main Product Preview"
                                             className="w-full h-full object-cover"
-                                            onError={(e) => { e.currentTarget.style.display = 'none' }}
+                                            onError={(e) => { e.currentTarget.src = 'https://placehold.co/400x400?text=Preview+Error' }}
                                         />
-                                    ) : (
-                                        <ImageIcon className="text-slate-300" size={18} />
-                                    )}
+                                    </div>
+                                    <div className="space-y-1 text-left flex-1 min-w-0">
+                                        <div className="flex items-center gap-2">
+                                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-emerald-100 text-emerald-800 border border-emerald-200">
+                                                Primary Photo
+                                            </span>
+                                            <span className="text-xs text-slate-500 flex items-center gap-1">
+                                                <Check size={12} className="text-emerald-600" /> Ready
+                                            </span>
+                                        </div>
+                                        <p className="text-xs text-slate-600 truncate max-w-xs font-mono">
+                                            {formData.imageUrl.startsWith('data:') ? 'Image uploaded from user device' : formData.imageUrl}
+                                        </p>
+                                        <p className="text-[11px] text-slate-400">
+                                            Displayed as main storefront thumbnail
+                                        </p>
+                                    </div>
                                 </div>
-                                <div className="flex-1">
-                                    <input
-                                        type="url"
-                                        value={imgUrl}
-                                        onChange={e => handleUpdateImage(index, e.target.value)}
-                                        placeholder={index === 0 ? "Main image URL (https://...)" : "Additional gallery image URL"}
-                                        className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-100 outline-none transition text-sm text-slate-900"
-                                    />
-                                </div>
-                                {formData.images.length > 1 && (
+
+                                <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
                                     <button
                                         type="button"
-                                        onClick={() => handleRemoveImage(index)}
-                                        className="p-2 text-slate-400 hover:text-rose-600 rounded-lg hover:bg-rose-50 transition"
-                                        title="Remove image"
+                                        disabled={uploadingMain}
+                                        onClick={() => mainFileInputRef.current?.click()}
+                                        className="px-3.5 py-2 text-xs font-semibold bg-white border border-slate-200 hover:bg-slate-100 text-slate-700 rounded-xl transition shadow-sm inline-flex items-center gap-1.5"
+                                    >
+                                        {uploadingMain ? <Loader2 size={13} className="animate-spin" /> : <Upload size={13} />}
+                                        Replace Image
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setFormData(prev => ({
+                                                ...prev,
+                                                imageUrl: '',
+                                                images: prev.images.filter((_, idx) => idx !== 0)
+                                            }))
+                                        }}
+                                        className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition"
+                                        title="Remove Image"
                                     >
                                         <Trash2 size={16} />
                                     </button>
-                                )}
+                                </div>
                             </div>
-                        ))}
+                        )}
+                    </div>
+
+                    {/* SECTION B: Additional Gallery Images */}
+                    <div className="pt-4 border-t border-slate-100 space-y-4">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                            <div>
+                                <label className="text-xs font-semibold uppercase tracking-wider text-slate-600 block">
+                                    Additional Gallery Photos
+                                </label>
+                                <p className="text-xs text-slate-400">
+                                    Add multiple photos from your device to showcase angles, features, and packaging.
+                                </p>
+                            </div>
+
+                            <div className="flex items-center gap-2">
+                                <button
+                                    type="button"
+                                    disabled={uploadingGallery}
+                                    onClick={() => galleryFileInputRef.current?.click()}
+                                    className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-xl transition shadow-sm cursor-pointer disabled:opacity-50"
+                                >
+                                    {uploadingGallery ? (
+                                        <Loader2 size={14} className="animate-spin" />
+                                    ) : (
+                                        <ImagePlus size={14} />
+                                    )}
+                                    <span>Upload Photos from Device</span>
+                                </button>
+                            </div>
+                        </div>
+
+                        {/* Gallery Thumbnails Grid */}
+                        {formData.images.length > 0 ? (
+                            <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-5 gap-3">
+                                {formData.images.map((imgUrl, index) => {
+                                    const isPrimary = formData.imageUrl === imgUrl || index === 0
+                                    return (
+                                        <div
+                                            key={index}
+                                            className={`relative group rounded-xl border overflow-hidden aspect-square bg-slate-50 flex items-center justify-center transition-all ${
+                                                isPrimary
+                                                    ? 'border-emerald-500 ring-2 ring-emerald-500/20'
+                                                    : 'border-slate-200 hover:border-slate-300'
+                                            }`}
+                                        >
+                                            <img
+                                                src={imgUrl}
+                                                alt={`Gallery photo ${index + 1}`}
+                                                className="w-full h-full object-cover"
+                                                onError={(e) => { e.currentTarget.src = 'https://placehold.co/200x200?text=Preview' }}
+                                            />
+
+                                            {/* Badges & Actions Overlay */}
+                                            {isPrimary && (
+                                                <span className="absolute top-1.5 left-1.5 px-1.5 py-0.5 rounded-md text-[9px] font-bold uppercase bg-emerald-600 text-white shadow-sm">
+                                                    Primary
+                                                </span>
+                                            )}
+
+                                            <div className="absolute inset-0 bg-slate-900/60 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center gap-1.5 p-2">
+                                                {!isPrimary && (
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => handleSetPrimary(index)}
+                                                        className="px-2 py-1 bg-white hover:bg-slate-100 text-slate-800 text-[10px] font-bold rounded-lg shadow-sm transition active:scale-95"
+                                                    >
+                                                        Set Primary
+                                                    </button>
+                                                )}
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleRemoveImage(index)}
+                                                    className="p-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-lg transition active:scale-95"
+                                                    title="Remove Image"
+                                                >
+                                                    <Trash2 size={13} />
+                                                </button>
+                                            </div>
+                                        </div>
+                                    )
+                                })}
+
+                                {/* Add more tile */}
+                                <button
+                                    type="button"
+                                    onClick={() => galleryFileInputRef.current?.click()}
+                                    className="border-2 border-dashed border-slate-200 hover:border-blue-400 rounded-xl aspect-square flex flex-col items-center justify-center p-2 text-slate-400 hover:text-blue-600 transition cursor-pointer bg-slate-50/50 hover:bg-slate-50"
+                                >
+                                    <Plus size={20} className="mb-1" />
+                                    <span className="text-[11px] font-semibold text-center">Add Photo</span>
+                                </button>
+                            </div>
+                        ) : (
+                            <div
+                                onClick={() => galleryFileInputRef.current?.click()}
+                                className="border border-dashed border-slate-200 rounded-xl p-5 text-center cursor-pointer hover:bg-slate-50 transition"
+                            >
+                                <p className="text-xs text-slate-500">
+                                    No gallery images uploaded yet. Click to select additional photos from your device.
+                                </p>
+                            </div>
+                        )}
+
+                        {/* Optional URL input toggle */}
+                        {imageInputMode === 'url' && (
+                            <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-3 animate-in fade-in duration-150">
+                                <label className="text-xs font-semibold text-slate-700 block">
+                                    Or Add Image via Public URL
+                                </label>
+                                <div className="flex gap-2">
+                                    <input
+                                        type="url"
+                                        id="manualImageUrlInput"
+                                        placeholder="https://example.com/product-image.jpg"
+                                        className="flex-1 px-3.5 py-2 text-xs rounded-lg border border-slate-200 bg-white focus:outline-none focus:border-blue-500"
+                                        onKeyDown={(e) => {
+                                            if (e.key === 'Enter') {
+                                                e.preventDefault()
+                                                handleAddImageUrl(e.currentTarget.value)
+                                                e.currentTarget.value = ''
+                                            }
+                                        }}
+                                    />
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            const inputEl = document.getElementById('manualImageUrlInput')
+                                            if (inputEl?.value) {
+                                                handleAddImageUrl(inputEl.value)
+                                                inputEl.value = ''
+                                            }
+                                        }}
+                                        className="px-4 py-2 text-xs font-semibold bg-slate-900 text-white rounded-lg hover:bg-slate-800 transition"
+                                    >
+                                        Add URL
+                                    </button>
+                                </div>
+                            </div>
+                        )}
                     </div>
                 </div>
 

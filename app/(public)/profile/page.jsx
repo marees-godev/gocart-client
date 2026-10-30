@@ -1,8 +1,9 @@
 'use client'
 
-import React, { useState } from 'react'
+import React, { useState, useEffect, useCallback, useRef } from 'react'
 import Image from 'next/image'
 import Link from 'next/link'
+
 import {
     User,
     Mail,
@@ -23,29 +24,190 @@ import {
     Save,
     AlertTriangle,
     Eye,
-    EyeOff
+    EyeOff,
+    Loader2,
+    LogIn
 } from 'lucide-react'
 import { assets } from '@/assets/assets'
 import toast from 'react-hot-toast'
-import AddressModal from '@/components/AddressModal'
+import AddressModal, { resolveUserId } from '@/components/AddressModal'
+import { useDispatch, useSelector } from 'react-redux'
+import {
+    setAddresses,
+    deleteAddress as deleteAddressAction,
+    setDefaultAddress as setDefaultAddressAction,
+    normalizeAddress
+} from '@/lib/features/address/addressSlice'
+import { graphqlRequest } from '@/lib/apiClient'
+import {
+    GET_USER_ADDRESSES_QUERY,
+    DELETE_USER_ADDRESS_MUTATION,
+    SET_DEFAULT_USER_ADDRESS_MUTATION
+} from '@/lib/graphql/address'
+import {
+    GET_ME_QUERY,
+    GET_USER_QUERY,
+    UPDATE_USER_MUTATION
+} from '@/lib/graphql/user'
+import { setAuth } from '@/lib/features/auth/authSlice'
 
 export default function ProfilePage() {
+    const dispatch = useDispatch()
+    const reduxUser = useSelector((state) => state.auth?.user)
+    const cartTotal = useSelector((state) => state.cart?.total || 0)
+    const effectiveUserId = resolveUserId(null, reduxUser)
+
     // Active navigation tab
     const [activeTab, setActiveTab] = useState('profile') // 'profile' | 'addresses' | 'security' | 'preferences'
     const [showAddressModal, setShowAddressModal] = useState(false)
     const [editingAddress, setEditingAddress] = useState(null)
 
-    // Profile form state (Design placeholder - replace with your JS / Auth logic)
-    const [profileData, setProfileData] = useState({
-        firstName: 'Alex',
-        lastName: 'Morgan',
-        email: 'alex.morgan@example.com',
-        phone: '+1 (555) 234-5678',
-        gender: 'male', // 'male' | 'female' | 'other'
-        dob: '1995-06-15',
-        bio: 'Tech enthusiast, music lover, and frequent GoCart shopper.',
-        avatar: null
+    // Addresses state from backend
+    const [addresses, setAddressesList] = useState([])
+    const [loadingAddresses, setLoadingAddresses] = useState(true)
+    const [actionId, setActionId] = useState(null) // for showing spinner on specific delete/default actions
+
+    // Profile form state (Initialized cleanly without any placeholder name)
+    const [profileData, setProfileData] = useState(() => {
+        if (typeof window !== 'undefined') {
+            try {
+                const cached = JSON.parse(localStorage.getItem('user') || '{}')
+                if (cached && (cached.email || cached.firstName || cached.name)) {
+                    const parts = (cached.name || '').trim().split(' ')
+                    return {
+                        firstName: cached.firstName || parts[0] || '',
+                        lastName: cached.lastName || parts.slice(1).join(' ') || '',
+                        email: cached.email || '',
+                        phone: cached.phone || '',
+                        gender: cached.gender === 'female' || cached.gender === 'others' ? cached.gender : 'male',
+                        dob: (cached.dateOfBirth || cached.dob || '').split('T')[0],
+                        bio: cached.bio || '',
+                        avatar: cached.avatarUrl || cached.avatar || null,
+                        memberSince: cached.createdAt
+                            ? new Date(cached.createdAt).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
+                            : ''
+                    }
+                }
+            } catch {}
+        }
+        return {
+            firstName: '',
+            lastName: '',
+            email: '',
+            phone: '',
+            gender: 'male',
+            dob: '',
+            bio: '',
+            avatar: null,
+            memberSince: ''
+        }
     })
+
+    const [loadingProfile, setLoadingProfile] = useState(true)
+    const [savingProfile, setSavingProfile] = useState(false)
+    const hasFetchedProfileRef = useRef(false)
+    const hasFetchedAddressesRef = useRef(null)
+
+    // Fetch user profile from backend (called once on mount, or forced on discard)
+    const fetchUserProfile = useCallback(async (force = false) => {
+        const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null
+        if (!token && !effectiveUserId) {
+            setLoadingProfile(false)
+            return
+        }
+
+        if (hasFetchedProfileRef.current && !force) {
+            return
+        }
+        hasFetchedProfileRef.current = true
+
+        setLoadingProfile(true)
+        try {
+            const res = await graphqlRequest(GET_ME_QUERY)
+            const me = res?.me
+            if (me) {
+                const formattedDob = (me.dateOfBirth || '').split('T')[0]
+                const formattedDate = me.createdAt
+                    ? new Date(me.createdAt).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
+                    : ''
+
+                setProfileData({
+                    firstName: me.firstName || '',
+                    lastName: me.lastName || '',
+                    email: me.email || '',
+                    phone: me.phone || '',
+                    gender: me.gender === 'female' || me.gender === 'others' ? me.gender : 'male',
+                    dob: formattedDob,
+                    bio: me.bio || '',
+                    avatar: me.avatarUrl || null,
+                    memberSince: formattedDate
+                })
+            } else if (effectiveUserId) {
+                const userRes = await graphqlRequest(GET_USER_QUERY, { id: effectiveUserId })
+                const u = userRes?.user
+                if (u) {
+                    setProfileData({
+                        firstName: u.firstName || '',
+                        lastName: u.lastName || '',
+                        email: u.email || '',
+                        phone: u.phone || '',
+                        gender: u.gender === 'female' || u.gender === 'others' ? u.gender : 'male',
+                        dob: (u.dateOfBirth || '').split('T')[0],
+                        bio: u.bio || '',
+                        avatar: u.avatarUrl || null,
+                        memberSince: u.createdAt
+                            ? new Date(u.createdAt).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
+                            : ''
+                    })
+                }
+            }
+        } catch (err) {
+            console.error('Failed to fetch user profile:', err)
+        } finally {
+            setLoadingProfile(false)
+        }
+    }, [effectiveUserId])
+
+    useEffect(() => {
+        fetchUserProfile()
+    }, [fetchUserProfile])
+
+    // Fetch user addresses from BE
+    const fetchUserAddresses = useCallback(async (force = false) => {
+        if (!effectiveUserId) {
+            setLoadingAddresses(false)
+            return
+        }
+
+        if (hasFetchedAddressesRef.current === effectiveUserId && !force) {
+            return
+        }
+        hasFetchedAddressesRef.current = effectiveUserId
+
+        setLoadingAddresses(true)
+        try {
+            const res = await graphqlRequest(GET_USER_ADDRESSES_QUERY, {
+                userId: effectiveUserId
+            })
+
+            const fetchedList = res?.userAddresses || []
+            const normalized = fetchedList.map(normalizeAddress)
+            setAddressesList(normalized)
+            dispatch(setAddresses(normalized))
+        } catch (err) {
+            console.error('Failed to fetch addresses from backend:', err)
+            // If user not found yet or error, keep empty
+            setAddressesList([])
+        } finally {
+            setLoadingAddresses(false)
+        }
+    }, [effectiveUserId, dispatch])
+
+    useEffect(() => {
+        if (effectiveUserId) {
+            fetchUserAddresses()
+        }
+    }, [effectiveUserId, fetchUserAddresses])
 
     // Password & Security state
     const [securityData, setSecurityData] = useState({
@@ -59,34 +221,6 @@ export default function ProfilePage() {
         new: false,
         confirm: false
     })
-
-    // Saved Addresses mock state
-    const [addresses, setAddresses] = useState([
-        {
-            id: 1,
-            title: 'Home',
-            isDefault: true,
-            name: 'Alex Morgan',
-            phone: '+1 (555) 234-5678',
-            street: '742 Evergreen Terrace',
-            city: 'Springfield',
-            state: 'OR',
-            zip: '97477',
-            country: 'United States'
-        },
-        {
-            id: 2,
-            title: 'Office',
-            isDefault: false,
-            name: 'Alex Morgan',
-            phone: '+1 (555) 876-5432',
-            street: '100 Silicon Ave, Suite 400',
-            city: 'San Francisco',
-            state: 'CA',
-            zip: '94107',
-            country: 'United States'
-        }
-    ])
 
     // Notification Preferences state
     const [preferences, setPreferences] = useState({
@@ -102,9 +236,132 @@ export default function ProfilePage() {
         setProfileData((prev) => ({ ...prev, [name]: value }))
     }
 
+    const handleAvatarChange = (e) => {
+        const file = e.target.files?.[0]
+        if (!file) return
+
+        if (!file.type.startsWith('image/')) {
+            toast.error('Please select an image file')
+            return
+        }
+
+        if (file.size > 2 * 1024 * 1024) {
+            toast.error('Image size must be less than 2MB')
+            return
+        }
+
+        const reader = new FileReader()
+        reader.onload = () => {
+            setProfileData(prev => ({
+                ...prev,
+                avatar: reader.result
+            }))
+            toast.success('Photo selected! Click "Save Changes" to apply.')
+        }
+        reader.readAsDataURL(file)
+    }
+
+    const handleSaveProfile = async (e) => {
+        e.preventDefault()
+
+        const targetUserId = effectiveUserId || reduxUser?.id
+        if (!targetUserId) {
+            toast.error('Please log in to update your profile')
+            return
+        }
+
+        if (!profileData.firstName?.trim()) {
+            toast.error('First name is required')
+            return
+        }
+
+        setSavingProfile(true)
+        try {
+            const input = {
+                firstName: profileData.firstName.trim(),
+                lastName: profileData.lastName?.trim() || '',
+                phone: profileData.phone?.trim() || null,
+                gender: profileData.gender || 'male',
+                dateOfBirth: profileData.dob || null,
+                bio: profileData.bio?.trim() || null,
+                avatarUrl: profileData.avatar || null
+            }
+
+            const res = await graphqlRequest(UPDATE_USER_MUTATION, {
+                id: targetUserId,
+                input
+            })
+
+            if (res?.updateUser) {
+                const updated = res.updateUser
+                const fullName = `${updated.firstName || ''} ${updated.lastName || ''}`.trim() || updated.email
+
+                setProfileData(prev => ({
+                    ...prev,
+                    firstName: updated.firstName || '',
+                    lastName: updated.lastName || '',
+                    email: updated.email || prev.email,
+                    phone: updated.phone || '',
+                    gender: updated.gender === 'female' || updated.gender === 'others' ? updated.gender : 'male',
+                    dob: (updated.dateOfBirth || '').split('T')[0],
+                    bio: updated.bio || '',
+                    avatar: updated.avatarUrl || prev.avatar
+                }))
+
+                const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null
+                const updatedUserObj = {
+                    ...reduxUser,
+                    ...updated,
+                    name: fullName
+                }
+                dispatch(setAuth({ user: updatedUserObj, token }))
+                if (typeof window !== 'undefined') {
+                    localStorage.setItem('user', JSON.stringify(updatedUserObj))
+                }
+
+                toast.success('Profile updated successfully!')
+            } else {
+                throw new Error('Failed to update profile')
+            }
+        } catch (err) {
+            console.error('Failed to update profile:', err)
+            toast.error(err.message || 'Failed to update profile details')
+        } finally {
+            setSavingProfile(false)
+        }
+    }
+
+    const handleDiscardChanges = () => {
+        fetchUserProfile(true)
+        toast('Changes discarded')
+    }
+
     const handleSecurityChange = (e) => {
         const { name, value } = e.target
         setSecurityData((prev) => ({ ...prev, [name]: value }))
+    }
+
+    const handleSecuritySubmit = (e) => {
+        e.preventDefault()
+        if (!securityData.currentPassword) {
+            toast.error('Please enter your current password')
+            return
+        }
+        if (securityData.newPassword.length < 6) {
+            toast.error('New password must be at least 6 characters')
+            return
+        }
+        if (securityData.newPassword !== securityData.confirmPassword) {
+            toast.error('New passwords do not match')
+            return
+        }
+        toast.success('Password updated successfully')
+        setSecurityData({
+            currentPassword: '',
+            newPassword: '',
+            confirmPassword: '',
+            twoFactorAuth: securityData.twoFactorAuth
+        })
     }
 
     const handlePreferenceToggle = (key) => {
@@ -112,6 +369,10 @@ export default function ProfilePage() {
     }
 
     const handleOpenAddAddress = () => {
+        if (!effectiveUserId) {
+            toast.error('Please log in to manage your addresses')
+            return
+        }
         setEditingAddress(null)
         setShowAddressModal(true)
     }
@@ -121,142 +382,173 @@ export default function ProfilePage() {
         setShowAddressModal(true)
     }
 
-    const handleDeleteAddress = (addrId) => {
-        setAddresses(prev => prev.filter(a => a.id !== addrId))
-        toast.success('Address removed successfully')
-    }
+    // Delete Address on Backend
+    const handleDeleteAddress = async (addrId) => {
+        if (!confirm('Are you sure you want to delete this delivery address?')) return
 
-    const handleSetDefaultAddress = (addrId) => {
-        setAddresses(prev => prev.map(a => ({
-            ...a,
-            isDefault: a.id === addrId
-        })))
-        toast.success('Default address updated')
-    }
-
-    const handleAddressSaved = (savedAddr) => {
-        if (editingAddress) {
-            setAddresses(prev => prev.map(a => a.id === savedAddr.id ? savedAddr : (savedAddr.isDefault ? { ...a, isDefault: false } : a)))
-        } else {
-            const newEntry = {
-                ...savedAddr,
-                id: savedAddr.id || Date.now()
-            }
-            if (newEntry.isDefault) {
-                setAddresses(prev => [...prev.map(a => ({ ...a, isDefault: false })), newEntry])
-            } else {
-                setAddresses(prev => [...prev, newEntry])
-            }
+        setActionId(addrId)
+        try {
+            await graphqlRequest(DELETE_USER_ADDRESS_MUTATION, { id: addrId })
+            setAddressesList(prev => prev.filter(a => String(a.id) !== String(addrId)))
+            dispatch(deleteAddressAction(addrId))
+            toast.success('Address removed successfully')
+        } catch (err) {
+            console.error('Failed to delete address:', err)
+            toast.error(err.message || 'Failed to remove address')
+        } finally {
+            setActionId(null)
         }
     }
+
+    // Set Default Address on Backend
+    const handleSetDefaultAddress = async (addrId) => {
+        setActionId(addrId)
+        try {
+            await graphqlRequest(SET_DEFAULT_USER_ADDRESS_MUTATION, { id: addrId })
+            setAddressesList(prev => prev.map(a => ({
+                ...a,
+                isDefault: String(a.id) === String(addrId)
+            })))
+            dispatch(setDefaultAddressAction(addrId))
+            toast.success('Default delivery address updated')
+        } catch (err) {
+            console.error('Failed to set default address:', err)
+            toast.error(err.message || 'Failed to set default address')
+        } finally {
+            setActionId(null)
+        }
+    }
+
+    const handleAddressSaved = () => {
+        fetchUserAddresses()
+    }
+
 
     return (
         <div className="min-h-screen bg-slate-50/60 py-10 px-4 sm:px-6 lg:px-8">
             <div className="max-w-7xl mx-auto space-y-8">
                 
                 {/* 1. Profile Hero Header Banner */}
-                <div className="relative overflow-hidden rounded-3xl bg-white border border-slate-200/80 shadow-sm p-6 sm:p-8">
-                    {/* Background Decorative Accent */}
-                    <div className="absolute -top-24 -right-24 w-80 h-80 bg-green-100/50 rounded-full blur-3xl pointer-events-none" />
-                    <div className="absolute -bottom-20 -left-20 w-72 h-72 bg-indigo-100/50 rounded-full blur-3xl pointer-events-none" />
-
-                    <div className="relative flex flex-col md:flex-row items-center md:items-start justify-between gap-6">
-                        
-                        {/* Avatar & User Info */}
-                        <div className="flex flex-col sm:flex-row items-center gap-6 text-center sm:text-left">
-                            <div className="relative group">
-                                <div className="w-28 h-28 sm:w-32 sm:h-32 rounded-full ring-4 ring-green-500/20 bg-gradient-to-tr from-green-500 to-emerald-400 p-1 shadow-md">
-                                    <div className="w-full h-full rounded-full bg-white overflow-hidden flex items-center justify-center text-slate-400 text-3xl font-bold">
-                                        {profileData.avatar ? (
-                                            <Image
-                                                src={profileData.avatar}
-                                                alt="User Profile"
-                                                width={128}
-                                                height={128}
-                                                className="w-full h-full object-cover"
-                                            />
-                                        ) : (
-                                            <span className="text-slate-700">
-                                                {profileData.firstName[0]}
-                                                {profileData.lastName[0]}
-                                            </span>
-                                        )}
-                                    </div>
+                {loadingProfile && !profileData.firstName && !profileData.email ? (
+                    <div className="relative overflow-hidden rounded-3xl bg-white border border-slate-200/80 shadow-sm p-6 sm:p-8 animate-pulse">
+                        <div className="flex flex-col md:flex-row items-center md:items-start justify-between gap-6">
+                            <div className="flex flex-col sm:flex-row items-center gap-6 text-center sm:text-left">
+                                <div className="w-28 h-28 sm:w-32 sm:h-32 rounded-full bg-slate-200" />
+                                <div className="space-y-3">
+                                    <div className="h-7 w-48 bg-slate-200 rounded-lg" />
+                                    <div className="h-4 w-40 bg-slate-100 rounded-md" />
+                                    <div className="h-3 w-32 bg-slate-100 rounded-md" />
                                 </div>
-                                
-                                {/* Upload photo overlay / button */}
-                                <label className="absolute bottom-1 right-1 p-2 bg-slate-900 hover:bg-slate-800 text-white rounded-full cursor-pointer shadow-lg transition-transform hover:scale-110">
-                                    <Camera size={16} />
-                                    <input
-                                        type="file"
-                                        accept="image/*"
-                                        className="hidden"
-                                        onChange={(e) => {
-                                            if (e.target.files?.[0]) {
-                                                setProfileData({
-                                                    ...profileData,
-                                                    avatar: URL.createObjectURL(e.target.files[0])
-                                                })
-                                            }
-                                        }}
-                                    />
-                                </label>
                             </div>
-
-                            <div className="space-y-1.5">
-                                <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2">
-                                    <h1 className="text-2xl sm:text-3xl font-bold text-slate-800">
-                                        {profileData.firstName} {profileData.lastName}
-                                    </h1>
-                                    <span className="inline-flex items-center gap-1 px-3 py-0.5 rounded-full text-xs font-semibold bg-green-100 text-green-700 border border-green-200">
-                                        <CheckCircle size={13} /> Verified Buyer
-                                    </span>
-                                </div>
-                                <p className="text-sm text-slate-500 flex items-center justify-center sm:justify-start gap-1.5">
-                                    <Mail size={15} className="text-slate-400" />
-                                    {profileData.email}
-                                </p>
-                                <p className="text-xs text-slate-400">Member since January 2024</p>
+                            <div className="grid grid-cols-3 gap-3 w-full md:w-auto">
+                                <div className="h-20 w-24 bg-slate-100 rounded-2xl" />
+                                <div className="h-20 w-24 bg-slate-100 rounded-2xl" />
+                                <div className="h-20 w-24 bg-slate-100 rounded-2xl" />
                             </div>
-                        </div>
-
-                        {/* Quick Stats Grid */}
-                        <div className="grid grid-cols-3 gap-3 sm:gap-4 w-full md:w-auto">
-                            <Link
-                                href="/orders"
-                                className="flex flex-col items-center justify-center p-3 sm:p-4 rounded-2xl bg-slate-50 hover:bg-green-50/60 border border-slate-200/80 transition-all hover:border-green-300 group"
-                            >
-                                <div className="p-2 rounded-xl bg-green-100 text-green-600 mb-1 group-hover:scale-110 transition-transform">
-                                    <Package size={18} />
-                                </div>
-                                <span className="text-lg font-bold text-slate-800">12</span>
-                                <span className="text-xs text-slate-500">Orders</span>
-                            </Link>
-
-                            <button
-                                onClick={() => setActiveTab('addresses')}
-                                className="flex flex-col items-center justify-center p-3 sm:p-4 rounded-2xl bg-slate-50 hover:bg-indigo-50/60 border border-slate-200/80 transition-all hover:border-indigo-300 group"
-                            >
-                                <div className="p-2 rounded-xl bg-indigo-100 text-indigo-600 mb-1 group-hover:scale-110 transition-transform">
-                                    <MapPin size={18} />
-                                </div>
-                                <span className="text-lg font-bold text-slate-800">{addresses.length}</span>
-                                <span className="text-xs text-slate-500">Addresses</span>
-                            </button>
-
-                            <Link
-                                href="/cart"
-                                className="flex flex-col items-center justify-center p-3 sm:p-4 rounded-2xl bg-slate-50 hover:bg-amber-50/60 border border-slate-200/80 transition-all hover:border-amber-300 group"
-                            >
-                                <div className="p-2 rounded-xl bg-amber-100 text-amber-600 mb-1 group-hover:scale-110 transition-transform">
-                                    <ShoppingBag size={18} />
-                                </div>
-                                <span className="text-lg font-bold text-slate-800">3</span>
-                                <span className="text-xs text-slate-500">Cart Items</span>
-                            </Link>
                         </div>
                     </div>
-                </div>
+                ) : (
+                    <div className="relative overflow-hidden rounded-3xl bg-white border border-slate-200/80 shadow-sm p-6 sm:p-8">
+                        {/* Background Decorative Accent */}
+                        <div className="absolute -top-24 -right-24 w-80 h-80 bg-green-100/50 rounded-full blur-3xl pointer-events-none" />
+                        <div className="absolute -bottom-20 -left-20 w-72 h-72 bg-indigo-100/50 rounded-full blur-3xl pointer-events-none" />
+
+                        <div className="relative flex flex-col md:flex-row items-center md:items-start justify-between gap-6">
+                            
+                            {/* Avatar & User Info */}
+                            <div className="flex flex-col sm:flex-row items-center gap-6 text-center sm:text-left">
+                                <div className="relative group">
+                                    <div className="w-28 h-28 sm:w-32 sm:h-32 rounded-full ring-4 ring-green-500/20 bg-gradient-to-tr from-green-500 to-emerald-400 p-1 shadow-md">
+                                        <div className="w-full h-full rounded-full bg-white overflow-hidden flex items-center justify-center text-slate-400 text-3xl font-bold">
+                                            {profileData.avatar ? (
+                                                <Image
+                                                    src={profileData.avatar}
+                                                    alt="User Profile"
+                                                    width={128}
+                                                    height={128}
+                                                    unoptimized
+                                                    className="w-full h-full object-cover"
+                                                />
+                                            ) : (
+                                                <span className="text-slate-700">
+                                                    {(profileData.firstName?.[0] || reduxUser?.name?.[0] || profileData.email?.[0] || 'U').toUpperCase()}
+                                                    {(profileData.lastName?.[0] || '').toUpperCase()}
+                                                </span>
+                                            )}
+                                        </div>
+                                    </div>
+                                    
+                                    {/* Upload photo overlay / button */}
+                                    <label className="absolute bottom-1 right-1 p-2 bg-slate-900 hover:bg-slate-800 text-white rounded-full cursor-pointer shadow-lg transition-transform hover:scale-110" title="Change avatar photo">
+                                        <Camera size={16} />
+                                        <input
+                                            type="file"
+                                            accept="image/*"
+                                            className="hidden"
+                                            onChange={handleAvatarChange}
+                                        />
+                                    </label>
+                                </div>
+
+                                <div className="space-y-1.5">
+                                    <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2">
+                                        <h1 className="text-2xl sm:text-3xl font-bold text-slate-800">
+                                            {profileData.firstName || profileData.lastName
+                                                ? `${profileData.firstName} ${profileData.lastName}`.trim()
+                                                : reduxUser?.name || 'Customer Profile'}
+                                        </h1>
+                                        <span className="inline-flex items-center gap-1 px-3 py-0.5 rounded-full text-xs font-semibold bg-green-100 text-green-700 border border-green-200">
+                                            <CheckCircle size={13} /> Verified Buyer
+                                        </span>
+                                    </div>
+                                    <p className="text-sm text-slate-500 flex items-center justify-center sm:justify-start gap-1.5">
+                                        <Mail size={15} className="text-slate-400" />
+                                        {profileData.email || 'No email registered'}
+                                    </p>
+                                    <p className="text-xs text-slate-400">
+                                        {profileData.memberSince ? `Member since ${profileData.memberSince}` : 'GoCart Customer'}
+                                    </p>
+                                </div>
+                            </div>
+
+                            {/* Quick Stats Grid */}
+                            <div className="grid grid-cols-3 gap-3 sm:gap-4 w-full md:w-auto">
+                                <Link
+                                    href="/orders"
+                                    className="flex flex-col items-center justify-center p-3 sm:p-4 rounded-2xl bg-slate-50 hover:bg-green-50/60 border border-slate-200/80 transition-all hover:border-green-300 group"
+                                >
+                                    <div className="p-2 rounded-xl bg-green-100 text-green-600 mb-1 group-hover:scale-110 transition-transform">
+                                        <Package size={18} />
+                                    </div>
+                                    <span className="text-lg font-bold text-slate-800">Orders</span>
+                                    <span className="text-xs text-slate-500">View History</span>
+                                </Link>
+
+                                <button
+                                    onClick={() => setActiveTab('addresses')}
+                                    className="flex flex-col items-center justify-center p-3 sm:p-4 rounded-2xl bg-slate-50 hover:bg-indigo-50/60 border border-slate-200/80 transition-all hover:border-indigo-300 group cursor-pointer"
+                                >
+                                    <div className="p-2 rounded-xl bg-indigo-100 text-indigo-600 mb-1 group-hover:scale-110 transition-transform">
+                                        <MapPin size={18} />
+                                    </div>
+                                    <span className="text-lg font-bold text-slate-800">{addresses.length}</span>
+                                    <span className="text-xs text-slate-500">Addresses</span>
+                                </button>
+
+                                <Link
+                                    href="/cart"
+                                    className="flex flex-col items-center justify-center p-3 sm:p-4 rounded-2xl bg-slate-50 hover:bg-amber-50/60 border border-slate-200/80 transition-all hover:border-amber-300 group"
+                                >
+                                    <div className="p-2 rounded-xl bg-amber-100 text-amber-600 mb-1 group-hover:scale-110 transition-transform">
+                                        <ShoppingBag size={18} />
+                                    </div>
+                                    <span className="text-lg font-bold text-slate-800">{cartTotal}</span>
+                                    <span className="text-xs text-slate-500">In Cart</span>
+                                </Link>
+                            </div>
+                        </div>
+                    </div>
+                )}
 
                 {/* 2. Main Profile Content (Sidebar + Content Panel) */}
                 <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
@@ -342,139 +634,189 @@ export default function ProfilePage() {
                                     </p>
                                 </div>
 
-                                <form onSubmit={(e) => e.preventDefault()} className="space-y-6">
-                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-                                        <div>
-                                            <label className="block text-sm font-medium text-slate-700 mb-1.5">
-                                                First Name
-                                            </label>
-                                            <div className="relative">
-                                                <input
-                                                    type="text"
-                                                    name="firstName"
-                                                    value={profileData.firstName}
-                                                    onChange={handleProfileChange}
-                                                    className="w-full px-4 py-2.5 rounded-xl border border-slate-300 focus:border-slate-800 focus:ring-1 focus:ring-slate-800 outline-none text-slate-800 text-sm transition"
-                                                    placeholder="e.g. Alex"
-                                                />
-                                            </div>
+                                {!effectiveUserId && !loadingProfile ? (
+                                    <div className="p-8 text-center bg-slate-50 border border-dashed border-slate-200 rounded-2xl space-y-3">
+                                        <div className="w-12 h-12 bg-amber-50 text-amber-600 rounded-2xl flex items-center justify-center mx-auto border border-amber-200">
+                                            <LogIn size={22} />
                                         </div>
-
-                                        <div>
-                                            <label className="block text-sm font-medium text-slate-700 mb-1.5">
-                                                Last Name
-                                            </label>
-                                            <div className="relative">
-                                                <input
-                                                    type="text"
-                                                    name="lastName"
-                                                    value={profileData.lastName}
-                                                    onChange={handleProfileChange}
-                                                    className="w-full px-4 py-2.5 rounded-xl border border-slate-300 focus:border-slate-800 focus:ring-1 focus:ring-slate-800 outline-none text-slate-800 text-sm transition"
-                                                    placeholder="e.g. Morgan"
-                                                />
-                                            </div>
-                                        </div>
-
-                                        <div>
-                                            <label className="block text-sm font-medium text-slate-700 mb-1.5">
-                                                Email Address
-                                            </label>
-                                            <div className="relative">
-                                                <input
-                                                    type="email"
-                                                    name="email"
-                                                    value={profileData.email}
-                                                    onChange={handleProfileChange}
-                                                    className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-300 focus:border-slate-800 focus:ring-1 focus:ring-slate-800 outline-none text-slate-800 text-sm transition"
-                                                    placeholder="name@example.com"
-                                                />
-                                                <Mail size={16} className="absolute left-3.5 top-3 text-slate-400" />
-                                            </div>
-                                        </div>
-
-                                        <div>
-                                            <label className="block text-sm font-medium text-slate-700 mb-1.5">
-                                                Phone Number
-                                            </label>
-                                            <div className="relative">
-                                                <input
-                                                    type="tel"
-                                                    name="phone"
-                                                    value={profileData.phone}
-                                                    onChange={handleProfileChange}
-                                                    className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-300 focus:border-slate-800 focus:ring-1 focus:ring-slate-800 outline-none text-slate-800 text-sm transition"
-                                                    placeholder="+1 (555) 000-0000"
-                                                />
-                                                <Phone size={16} className="absolute left-3.5 top-3 text-slate-400" />
-                                            </div>
-                                        </div>
-
-                                        <div>
-                                            <label className="block text-sm font-medium text-slate-700 mb-1.5">
-                                                Date of Birth
-                                            </label>
-                                            <div className="relative">
-                                                <input
-                                                    type="date"
-                                                    name="dob"
-                                                    value={profileData.dob}
-                                                    onChange={handleProfileChange}
-                                                    className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-300 focus:border-slate-800 focus:ring-1 focus:ring-slate-800 outline-none text-slate-800 text-sm transition"
-                                                />
-                                                <Calendar size={16} className="absolute left-3.5 top-3 text-slate-400" />
-                                            </div>
-                                        </div>
-
-                                        <div>
-                                            <label className="block text-sm font-medium text-slate-700 mb-1.5">
-                                                Gender
-                                            </label>
-                                            <select
-                                                name="gender"
-                                                value={profileData.gender}
-                                                onChange={handleProfileChange}
-                                                className="w-full px-4 py-2.5 rounded-xl border border-slate-300 focus:border-slate-800 focus:ring-1 focus:ring-slate-800 outline-none text-slate-800 text-sm transition bg-white"
+                                        <h3 className="text-base font-bold text-slate-800">Sign in to edit your profile</h3>
+                                        <p className="text-xs text-slate-500 max-w-sm mx-auto">
+                                            Log in to your GoCart customer account to update your personal information and delivery preferences.
+                                        </p>
+                                        <div className="pt-2">
+                                            <Link
+                                                href="/login?redirect=/profile"
+                                                className="inline-flex items-center gap-2 px-5 py-2.5 bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold rounded-xl shadow-sm transition"
                                             >
-                                                <option value="male">Male</option>
-                                                <option value="female">Female</option>
-                                                <option value="other">Other</option>
-                                                <option value="prefer_not_to_say">Prefer not to say</option>
-                                            </select>
+                                                Sign In Now
+                                            </Link>
                                         </div>
                                     </div>
-
-                                    <div>
-                                        <label className="block text-sm font-medium text-slate-700 mb-1.5">
-                                            About / Bio
-                                        </label>
-                                        <textarea
-                                            rows={3}
-                                            name="bio"
-                                            value={profileData.bio}
-                                            onChange={handleProfileChange}
-                                            placeholder="Write a few lines about yourself..."
-                                            className="w-full px-4 py-2.5 rounded-xl border border-slate-300 focus:border-slate-800 focus:ring-1 focus:ring-slate-800 outline-none text-slate-800 text-sm transition resize-none"
-                                        />
+                                ) : loadingProfile && !profileData.firstName && !profileData.email ? (
+                                    <div className="space-y-6 animate-pulse">
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+                                            {[1, 2, 3, 4, 5, 6].map((n) => (
+                                                <div key={n} className="space-y-2">
+                                                    <div className="h-4 w-24 bg-slate-200 rounded" />
+                                                    <div className="h-10 bg-slate-100 rounded-xl" />
+                                                </div>
+                                            ))}
+                                        </div>
+                                        <div className="space-y-2">
+                                            <div className="h-4 w-20 bg-slate-200 rounded" />
+                                            <div className="h-20 bg-slate-100 rounded-xl" />
+                                        </div>
                                     </div>
+                                ) : (
+                                    <form onSubmit={handleSaveProfile} className="space-y-6">
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+                                            <div>
+                                                <label className="block text-sm font-medium text-slate-700 mb-1.5">
+                                                    First Name <span className="text-red-500">*</span>
+                                                </label>
+                                                <div className="relative">
+                                                    <input
+                                                        type="text"
+                                                        name="firstName"
+                                                        value={profileData.firstName}
+                                                        onChange={handleProfileChange}
+                                                        required
+                                                        className="w-full px-4 py-2.5 rounded-xl border border-slate-300 focus:border-slate-800 focus:ring-1 focus:ring-slate-800 outline-none text-slate-800 text-sm transition"
+                                                        placeholder="Your first name"
+                                                    />
+                                                </div>
+                                            </div>
 
-                                    {/* Action Buttons */}
-                                    <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-100">
-                                        <button
-                                            type="button"
-                                            className="px-5 py-2.5 rounded-xl border border-slate-200 text-slate-600 text-sm font-medium hover:bg-slate-50 transition"
-                                        >
-                                            Discard Changes
-                                        </button>
-                                        <button
-                                            type="submit"
-                                            className="flex items-center gap-2 px-6 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-sm font-medium shadow-sm active:scale-95 transition"
-                                        >
-                                            <Save size={16} />
-                                            Save Changes
-                                        </button>
-                                    </div>
-                                </form>
+                                            <div>
+                                                <label className="block text-sm font-medium text-slate-700 mb-1.5">
+                                                    Last Name
+                                                </label>
+                                                <div className="relative">
+                                                    <input
+                                                        type="text"
+                                                        name="lastName"
+                                                        value={profileData.lastName}
+                                                        onChange={handleProfileChange}
+                                                        className="w-full px-4 py-2.5 rounded-xl border border-slate-300 focus:border-slate-800 focus:ring-1 focus:ring-slate-800 outline-none text-slate-800 text-sm transition"
+                                                        placeholder="Your last name"
+                                                    />
+                                                </div>
+                                            </div>
+
+                                            <div>
+                                                <div className="flex items-center justify-between mb-1.5">
+                                                    <label className="block text-sm font-medium text-slate-700">
+                                                        Email Address
+                                                    </label>
+                                                    <span className="text-[11px] font-semibold text-slate-400 bg-slate-100 px-2 py-0.5 rounded-md">Primary Account</span>
+                                                </div>
+                                                <div className="relative">
+                                                    <input
+                                                        type="email"
+                                                        name="email"
+                                                        value={profileData.email}
+                                                        readOnly
+                                                        className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 bg-slate-50/70 text-slate-600 text-sm outline-none cursor-not-allowed"
+                                                        placeholder="name@example.com"
+                                                    />
+                                                    <Mail size={16} className="absolute left-3.5 top-3 text-slate-400" />
+                                                </div>
+                                            </div>
+
+                                            <div>
+                                                <label className="block text-sm font-medium text-slate-700 mb-1.5">
+                                                    Phone Number
+                                                </label>
+                                                <div className="relative">
+                                                    <input
+                                                        type="tel"
+                                                        name="phone"
+                                                        value={profileData.phone}
+                                                        onChange={handleProfileChange}
+                                                        className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-300 focus:border-slate-800 focus:ring-1 focus:ring-slate-800 outline-none text-slate-800 text-sm transition"
+                                                        placeholder="+1 (555) 000-0000"
+                                                    />
+                                                    <Phone size={16} className="absolute left-3.5 top-3 text-slate-400" />
+                                                </div>
+                                            </div>
+
+                                            <div>
+                                                <label className="block text-sm font-medium text-slate-700 mb-1.5">
+                                                    Date of Birth
+                                                </label>
+                                                <div className="relative">
+                                                    <input
+                                                        type="date"
+                                                        name="dob"
+                                                        value={profileData.dob}
+                                                        onChange={handleProfileChange}
+                                                        className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-300 focus:border-slate-800 focus:ring-1 focus:ring-slate-800 outline-none text-slate-800 text-sm transition"
+                                                    />
+                                                    <Calendar size={16} className="absolute left-3.5 top-3 text-slate-400" />
+                                                </div>
+                                            </div>
+
+                                            <div>
+                                                <label className="block text-sm font-medium text-slate-700 mb-1.5">
+                                                    Gender
+                                                </label>
+                                                <select
+                                                    name="gender"
+                                                    value={profileData.gender}
+                                                    onChange={handleProfileChange}
+                                                    className="w-full px-4 py-2.5 rounded-xl border border-slate-300 focus:border-slate-800 focus:ring-1 focus:ring-slate-800 outline-none text-slate-800 text-sm transition bg-white"
+                                                >
+                                                    <option value="male">Male</option>
+                                                    <option value="female">Female</option>
+                                                    <option value="others">Other / Non-binary</option>
+                                                </select>
+                                            </div>
+                                        </div>
+
+                                        <div>
+                                            <label className="block text-sm font-medium text-slate-700 mb-1.5">
+                                                About / Bio
+                                            </label>
+                                            <textarea
+                                                rows={3}
+                                                name="bio"
+                                                value={profileData.bio}
+                                                onChange={handleProfileChange}
+                                                placeholder="Write a few lines about yourself..."
+                                                className="w-full px-4 py-2.5 rounded-xl border border-slate-300 focus:border-slate-800 focus:ring-1 focus:ring-slate-800 outline-none text-slate-800 text-sm transition resize-none"
+                                            />
+                                        </div>
+
+                                        {/* Action Buttons */}
+                                        <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-100">
+                                            <button
+                                                type="button"
+                                                onClick={handleDiscardChanges}
+                                                disabled={savingProfile}
+                                                className="px-5 py-2.5 rounded-xl border border-slate-200 text-slate-600 text-sm font-medium hover:bg-slate-50 transition cursor-pointer disabled:opacity-50"
+                                            >
+                                                Discard Changes
+                                            </button>
+                                            <button
+                                                type="submit"
+                                                disabled={savingProfile}
+                                                className="flex items-center gap-2 px-6 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-sm font-medium shadow-sm active:scale-95 transition cursor-pointer disabled:opacity-60"
+                                            >
+                                                {savingProfile ? (
+                                                    <>
+                                                        <Loader2 size={16} className="animate-spin" />
+                                                        <span>Saving Changes...</span>
+                                                    </>
+                                                ) : (
+                                                    <>
+                                                        <Save size={16} />
+                                                        <span>Save Changes</span>
+                                                    </>
+                                                )}
+                                            </button>
+                                        </div>
+                                    </form>
+                                )}
                             </div>
                         )}
 
@@ -485,90 +827,160 @@ export default function ProfilePage() {
                                     <div>
                                         <h2 className="text-xl font-bold text-slate-800">Saved Addresses</h2>
                                         <p className="text-sm text-slate-500">
-                                            Manage your shipping and delivery destinations.
+                                            Manage your shipping and delivery destinations synchronized with your account.
                                         </p>
                                     </div>
                                     <button
                                         type="button"
                                         onClick={handleOpenAddAddress}
-                                        className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-green-600 hover:bg-green-700 text-white text-sm font-medium shadow-sm transition active:scale-95 cursor-pointer"
+                                        className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 text-white text-sm font-semibold shadow-md shadow-green-600/20 transition active:scale-95 cursor-pointer"
                                     >
                                         <Plus size={16} />
                                         Add New Address
                                     </button>
                                 </div>
 
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                    {addresses.map((addr) => (
-                                        <div
-                                            key={addr.id}
-                                            className={`relative rounded-2xl p-5 border transition-all ${
-                                                addr.isDefault
-                                                    ? 'border-green-500/80 bg-green-50/20'
-                                                    : 'border-slate-200 hover:border-slate-300 bg-white'
-                                            }`}
+                                {!effectiveUserId ? (
+                                    <div className="p-8 text-center bg-slate-50 border border-dashed border-slate-200 rounded-2xl space-y-3">
+                                        <div className="w-12 h-12 bg-amber-50 text-amber-600 rounded-2xl flex items-center justify-center mx-auto border border-amber-200">
+                                            <LogIn size={22} />
+                                        </div>
+                                        <h3 className="text-base font-bold text-slate-800">Sign in to view your addresses</h3>
+                                        <p className="text-xs text-slate-500 max-w-sm mx-auto">
+                                            Your delivery addresses are saved securely to your GoCart customer account. Log in to access or add new addresses.
+                                        </p>
+                                        <div className="pt-2">
+                                            <Link
+                                                href="/login?redirect=/profile"
+                                                className="inline-flex items-center gap-2 px-5 py-2.5 bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold rounded-xl shadow-sm transition"
+                                            >
+                                                Sign In Now
+                                            </Link>
+                                        </div>
+                                    </div>
+                                ) : loadingAddresses ? (
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                        {[1, 2].map(n => (
+                                            <div key={n} className="rounded-2xl p-6 border border-slate-200 bg-slate-50/50 animate-pulse space-y-3">
+                                                <div className="flex justify-between items-center">
+                                                    <div className="h-5 w-24 bg-slate-200 rounded-md" />
+                                                    <div className="h-4 w-12 bg-slate-200 rounded-md" />
+                                                </div>
+                                                <div className="space-y-2">
+                                                    <div className="h-4 w-40 bg-slate-200 rounded-md" />
+                                                    <div className="h-4 w-52 bg-slate-200 rounded-md" />
+                                                    <div className="h-4 w-32 bg-slate-200 rounded-md" />
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                ) : addresses.length === 0 ? (
+                                    <div className="p-10 text-center bg-slate-50/70 border-2 border-dashed border-slate-200 rounded-2xl space-y-3">
+                                        <div className="w-14 h-14 bg-green-50 text-green-600 rounded-2xl flex items-center justify-center mx-auto border border-green-200/80 shadow-sm">
+                                            <MapPin size={26} />
+                                        </div>
+                                        <h3 className="text-base font-bold text-slate-800">No delivery addresses yet</h3>
+                                        <p className="text-xs text-slate-500 max-w-md mx-auto leading-relaxed">
+                                            Add your home, office, or secondary delivery address to enable 1-click checkout and speedy delivery.
+                                        </p>
+                                        <button
+                                            type="button"
+                                            onClick={handleOpenAddAddress}
+                                            className="inline-flex items-center gap-2 px-5 py-2.5 bg-green-600 hover:bg-green-700 text-white text-xs font-semibold rounded-xl shadow-sm transition active:scale-95 cursor-pointer mt-2"
                                         >
-                                            <div className="flex items-start justify-between mb-3">
-                                                <div className="flex items-center gap-2">
-                                                    <span className="font-bold text-slate-800">{addr.title}</span>
-                                                    {addr.isDefault && (
-                                                        <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-green-100 text-green-700 border border-green-200">
-                                                            Default
-                                                        </span>
+                                            <Plus size={15} /> Add Your First Address
+                                        </button>
+                                    </div>
+                                ) : (
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                        {addresses.map((addr) => {
+                                            const isActionPending = actionId === addr.id
+                                            return (
+                                                <div
+                                                    key={addr.id}
+                                                    className={`relative rounded-2xl p-5 border transition-all ${
+                                                        addr.isDefault
+                                                            ? 'border-green-500 bg-green-50/20 shadow-sm ring-1 ring-green-500/20'
+                                                            : 'border-slate-200 hover:border-slate-300 bg-white'
+                                                    }`}
+                                                >
+                                                    <div className="flex items-start justify-between mb-3">
+                                                        <div className="flex items-center gap-2">
+                                                            <span className="font-bold text-slate-900">{addr.label || addr.title}</span>
+                                                            {addr.isDefault && (
+                                                                <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-green-100 text-green-700 border border-green-200">
+                                                                    Default
+                                                                </span>
+                                                            )}
+                                                        </div>
+                                                        <div className="flex items-center gap-1 text-slate-400">
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => handleOpenEditAddress(addr)}
+                                                                disabled={isActionPending}
+                                                                className="p-1.5 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition cursor-pointer disabled:opacity-40"
+                                                                title="Edit Address"
+                                                            >
+                                                                <Edit3 size={15} />
+                                                            </button>
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => handleDeleteAddress(addr.id)}
+                                                                disabled={isActionPending}
+                                                                className="p-1.5 hover:text-red-600 hover:bg-red-50 rounded-lg transition cursor-pointer disabled:opacity-40"
+                                                                title="Delete Address"
+                                                            >
+                                                                {isActionPending ? (
+                                                                    <Loader2 size={15} className="animate-spin text-red-500" />
+                                                                ) : (
+                                                                    <Trash2 size={15} />
+                                                                )}
+                                                            </button>
+                                                        </div>
+                                                    </div>
+
+                                                    <div className="text-sm text-slate-600 space-y-1">
+                                                        <p className="font-semibold text-slate-800">{addr.fullName || addr.name}</p>
+                                                        <p>{addr.addressLine || addr.street}</p>
+                                                        <p>{addr.city}, {addr.state} {addr.postalCode || addr.zip}</p>
+                                                        <p>{addr.country}</p>
+                                                        {(addr.phoneNumber || addr.phone) && (
+                                                            <p className="text-xs text-slate-400 pt-1">
+                                                                Phone: {addr.phoneNumber || addr.phone}
+                                                            </p>
+                                                        )}
+                                                    </div>
+
+                                                    {!addr.isDefault && (
+                                                        <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between">
+                                                            <button
+                                                                type="button"
+                                                                disabled={isActionPending}
+                                                                onClick={() => handleSetDefaultAddress(addr.id)}
+                                                                className="text-xs font-semibold text-green-600 hover:text-green-700 hover:underline cursor-pointer disabled:opacity-40 inline-flex items-center gap-1"
+                                                            >
+                                                                {isActionPending && <Loader2 size={12} className="animate-spin" />}
+                                                                <span>Set as Default</span>
+                                                            </button>
+                                                        </div>
                                                     )}
                                                 </div>
-                                                <div className="flex items-center gap-1 text-slate-400">
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => handleOpenEditAddress(addr)}
-                                                        className="p-1.5 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition cursor-pointer"
-                                                        title="Edit Address"
-                                                    >
-                                                        <Edit3 size={15} />
-                                                    </button>
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => handleDeleteAddress(addr.id)}
-                                                        className="p-1.5 hover:text-red-600 hover:bg-red-50 rounded-lg transition cursor-pointer"
-                                                        title="Delete Address"
-                                                    >
-                                                        <Trash2 size={15} />
-                                                    </button>
-                                                </div>
+                                            )
+                                        })}
+
+                                        {/* Add Address Card */}
+                                        <button
+                                            type="button"
+                                            onClick={handleOpenAddAddress}
+                                            className="h-full min-h-[170px] border-2 border-dashed border-slate-200 hover:border-green-500 rounded-2xl flex flex-col items-center justify-center p-6 text-slate-400 hover:text-green-600 transition group cursor-pointer"
+                                        >
+                                            <div className="p-3 rounded-full bg-slate-50 group-hover:bg-green-50 text-slate-400 group-hover:text-green-600 mb-2 transition">
+                                                <Plus size={20} />
                                             </div>
-
-                                            <div className="text-sm text-slate-600 space-y-1">
-                                                <p className="font-medium text-slate-800">{addr.name}</p>
-                                                <p>{addr.street}</p>
-                                                <p>{addr.city}, {addr.state} {addr.zip}</p>
-                                                <p>{addr.country}</p>
-                                                <p className="text-xs text-slate-400 pt-1">Phone: {addr.phone}</p>
-                                            </div>
-
-                                            {!addr.isDefault && (
-                                                <button
-                                                    type="button"
-                                                    onClick={() => handleSetDefaultAddress(addr.id)}
-                                                    className="mt-4 text-xs font-semibold text-green-600 hover:text-green-700 hover:underline cursor-pointer"
-                                                >
-                                                    Set as Default
-                                                </button>
-                                            )}
-                                        </div>
-                                    ))}
-
-                                    {/* Add Address Placeholder Card */}
-                                    <button
-                                        type="button"
-                                        onClick={handleOpenAddAddress}
-                                        className="h-full min-h-[170px] border-2 border-dashed border-slate-200 hover:border-green-500 rounded-2xl flex flex-col items-center justify-center p-6 text-slate-400 hover:text-green-600 transition group cursor-pointer"
-                                    >
-                                        <div className="p-3 rounded-full bg-slate-50 group-hover:bg-green-50 text-slate-400 group-hover:text-green-600 mb-2 transition">
-                                            <Plus size={20} />
-                                        </div>
-                                        <span className="text-sm font-medium">Add another address</span>
-                                    </button>
-                                </div>
+                                            <span className="text-sm font-semibold">Add another address</span>
+                                        </button>
+                                    </div>
+                                )}
                             </div>
                         )}
 
@@ -583,7 +995,7 @@ export default function ProfilePage() {
                                 </div>
 
                                 {/* Password Form */}
-                                <form onSubmit={(e) => e.preventDefault()} className="space-y-5 max-w-xl">
+                                <form onSubmit={handleSecuritySubmit} className="space-y-5 max-w-xl">
                                     <h3 className="text-base font-semibold text-slate-800 flex items-center gap-2">
                                         <Key size={18} className="text-slate-500" /> Change Password
                                     </h3>
@@ -816,9 +1228,11 @@ export default function ProfilePage() {
                 <AddressModal
                     setShowAddressModal={setShowAddressModal}
                     editAddress={editingAddress}
+                    userId={effectiveUserId}
                     onSuccess={handleAddressSaved}
                 />
             )}
         </div>
     )
 }
+

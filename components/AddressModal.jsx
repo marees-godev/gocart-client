@@ -13,10 +13,12 @@ import {
     Globe,
     Check,
     Navigation,
-    Sparkles
+    Loader2
 } from 'lucide-react'
-import { useDispatch } from 'react-redux'
-import { addAddress, updateAddress } from '@/lib/features/address/addressSlice'
+import { useDispatch, useSelector } from 'react-redux'
+import { addAddress, updateAddress, normalizeAddress } from '@/lib/features/address/addressSlice'
+import { graphqlRequest } from '@/lib/apiClient'
+import { CREATE_USER_ADDRESS_MUTATION, UPDATE_USER_ADDRESS_MUTATION } from '@/lib/graphql/address'
 import toast from 'react-hot-toast'
 
 const ADDRESS_TYPES = [
@@ -25,8 +27,39 @@ const ADDRESS_TYPES = [
     { id: 'Other', label: 'Other', icon: MapPin, desc: 'Custom address' },
 ]
 
-const AddressModal = ({ setShowAddressModal, editAddress = null, onSuccess = null }) => {
+// Extract user ID safely from state, localStorage, or JWT token
+export function resolveUserId(userFromProps, reduxUser) {
+    if (userFromProps) return userFromProps
+    if (reduxUser?.id) return reduxUser.id
+
+    if (typeof window !== 'undefined') {
+        const storedUser = localStorage.getItem('user')
+        if (storedUser) {
+            try {
+                const parsed = JSON.parse(storedUser)
+                if (parsed?.id) return parsed.id
+            } catch {}
+        }
+
+        const token = localStorage.getItem('token')
+        if (token) {
+            try {
+                const base64Url = token.split('.')[1]
+                if (base64Url) {
+                    const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/')
+                    const payload = JSON.parse(atob(base64))
+                    return payload.user_id || payload.userId || payload.sub || payload.customer_id || ''
+                }
+            } catch {}
+        }
+    }
+    return ''
+}
+
+const AddressModal = ({ setShowAddressModal, editAddress = null, userId = null, onSuccess = null }) => {
     const dispatch = useDispatch()
+    const reduxUser = useSelector(state => state.auth?.user)
+    const effectiveUserId = resolveUserId(userId, reduxUser)
 
     const [formData, setFormData] = useState({
         title: 'Home',
@@ -46,16 +79,16 @@ const AddressModal = ({ setShowAddressModal, editAddress = null, onSuccess = nul
     useEffect(() => {
         if (editAddress) {
             setFormData({
-                title: editAddress.title || 'Home',
-                name: editAddress.name || '',
-                phone: editAddress.phone || '',
-                email: editAddress.email || '',
-                street: editAddress.street || '',
+                title: editAddress.label || editAddress.title || 'Home',
+                name: editAddress.fullName || editAddress.name || '',
+                phone: editAddress.phoneNumber || editAddress.phone || '',
+                email: editAddress.emailAddress || editAddress.email || '',
+                street: editAddress.addressLine || editAddress.street || '',
                 city: editAddress.city || '',
                 state: editAddress.state || '',
-                zip: editAddress.zip || '',
+                zip: editAddress.postalCode || editAddress.zip || '',
                 country: editAddress.country || 'United States',
-                isDefault: editAddress.isDefault || false,
+                isDefault: Boolean(editAddress.isDefault),
             })
         }
     }, [editAddress])
@@ -88,19 +121,87 @@ const AddressModal = ({ setShowAddressModal, editAddress = null, onSuccess = nul
 
         try {
             if (editAddress && editAddress.id) {
-                const updatedPayload = { ...editAddress, ...formData }
-                dispatch(updateAddress(updatedPayload))
+                // UPDATE Address on Backend
+                const input = {
+                    label: formData.title,
+                    fullName: formData.name.trim(),
+                    phoneNumber: formData.phone.trim(),
+                    emailAddress: formData.email?.trim() || null,
+                    addressLine: formData.street.trim(),
+                    city: formData.city.trim(),
+                    state: formData.state.trim(),
+                    postalCode: formData.zip.trim(),
+                    country: formData.country.trim() || 'United States',
+                    isDefault: Boolean(formData.isDefault),
+                }
+
+                let updatedAddr = null
+                try {
+                    const response = await graphqlRequest(UPDATE_USER_ADDRESS_MUTATION, {
+                        id: editAddress.id,
+                        input
+                    })
+                    if (response?.updateUserAddress) {
+                        updatedAddr = normalizeAddress(response.updateUserAddress)
+                    }
+                } catch (beError) {
+                    console.warn('Backend update address warning, falling back to local update:', beError)
+                }
+
+                const finalPayload = updatedAddr || normalizeAddress({ ...editAddress, ...formData })
+                dispatch(updateAddress(finalPayload))
                 toast.success('Address updated successfully!')
-                if (onSuccess) onSuccess(updatedPayload)
+                if (onSuccess) onSuccess(finalPayload)
             } else {
-                const newPayload = { ...formData }
-                dispatch(addAddress(newPayload))
-                toast.success('New address added!')
-                if (onSuccess) onSuccess(newPayload)
+                // CREATE Address on Backend
+                if (!effectiveUserId) {
+                    toast.error('Please log in to save your address to your account')
+                    setIsSubmitting(false)
+                    return
+                }
+
+                const input = {
+                    label: formData.title,
+                    fullName: formData.name.trim(),
+                    phoneNumber: formData.phone.trim(),
+                    emailAddress: formData.email?.trim() || null,
+                    addressLine: formData.street.trim(),
+                    city: formData.city.trim(),
+                    state: formData.state.trim(),
+                    postalCode: formData.zip.trim(),
+                    country: formData.country.trim() || 'United States',
+                    isDefault: Boolean(formData.isDefault),
+                }
+
+                let createdAddr = null
+                try {
+                    const response = await graphqlRequest(CREATE_USER_ADDRESS_MUTATION, {
+                        userId: effectiveUserId,
+                        input
+                    })
+                    if (response?.createUserAddress) {
+                        createdAddr = normalizeAddress(response.createUserAddress)
+                    }
+                } catch (beError) {
+                    console.error('Backend create address error:', beError)
+                    throw beError
+                }
+
+                const finalPayload = createdAddr || normalizeAddress({
+                    id: `addr_${Date.now()}`,
+                    userId: effectiveUserId,
+                    ...formData
+                })
+
+                dispatch(addAddress(finalPayload))
+                toast.success('New address saved to your account!')
+                if (onSuccess) onSuccess(finalPayload)
             }
+
             setShowAddressModal(false)
         } catch (error) {
-            toast.error('Failed to save address. Please try again.')
+            console.error('Failed to save address:', error)
+            toast.error(error.message || 'Failed to save address. Please check your inputs.')
         } finally {
             setIsSubmitting(false)
         }
@@ -127,7 +228,7 @@ const AddressModal = ({ setShowAddressModal, editAddress = null, onSuccess = nul
                                     {editAddress ? 'Edit Delivery Address' : 'Add Delivery Address'}
                                 </h3>
                                 <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
-                                    Fill in details for seamless doorstep delivery
+                                    Saved to your GoCart account for fast checkout & deliveries
                                 </p>
                             </div>
                         </div>
@@ -145,7 +246,7 @@ const AddressModal = ({ setShowAddressModal, editAddress = null, onSuccess = nul
                     {/* Address Type Selector */}
                     <div className="mt-5">
                         <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2 block">
-                            Address Type
+                            Address Type / Label
                         </label>
                         <div className="grid grid-cols-3 gap-2.5">
                             {ADDRESS_TYPES.map((type) => {
@@ -342,7 +443,7 @@ const AddressModal = ({ setShowAddressModal, editAddress = null, onSuccess = nul
                             />
                             <div className="text-xs">
                                 <span className="font-semibold text-slate-800 block">Set as default delivery address</span>
-                                <span className="text-slate-500">We'll automatically use this address for future checkouts</span>
+                                <span className="text-slate-500">We will automatically use this address for future checkouts</span>
                             </div>
                         </label>
                     </div>
@@ -361,8 +462,17 @@ const AddressModal = ({ setShowAddressModal, editAddress = null, onSuccess = nul
                             disabled={isSubmitting}
                             className="inline-flex items-center gap-2 px-6 py-2.5 rounded-xl bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 text-white font-semibold text-sm shadow-md shadow-green-600/25 transition active:scale-95 disabled:opacity-50 cursor-pointer"
                         >
-                            <Check size={16} className="stroke-[2.5]" />
-                            <span>{isSubmitting ? 'Saving...' : editAddress ? 'Update Address' : 'Save Address'}</span>
+                            {isSubmitting ? (
+                                <>
+                                    <Loader2 size={16} className="animate-spin" />
+                                    <span>Saving to server...</span>
+                                </>
+                            ) : (
+                                <>
+                                    <Check size={16} className="stroke-[2.5]" />
+                                    <span>{editAddress ? 'Update Address' : 'Save Address'}</span>
+                                </>
+                            )}
                         </button>
                     </div>
                 </form>
