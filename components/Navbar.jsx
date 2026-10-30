@@ -1,6 +1,7 @@
 'use client'
 import { Search, ShoppingCart, LayoutDashboard, ShieldCheck, User as UserIcon, LogOut, Truck } from "lucide-react";
 import Link from "next/link";
+import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { useDispatch, useSelector } from "react-redux";
@@ -11,6 +12,13 @@ const Navbar = () => {
     const dispatch = useDispatch()
     const cartCount = useSelector(state => state.cart.total)
     const { user, isAuthenticated } = useSelector(state => state.auth)
+
+    // Compute user-friendly display name (prioritize real firstName/lastName)
+    const displayName = (user?.firstName || user?.lastName)
+        ? `${user.firstName || ''} ${user.lastName || ''}`.trim()
+        : (user?.name && !user.name.includes('@') && user.name !== user?.email?.split('@')[0])
+        ? user.name
+        : user?.username || user?.name || user?.email?.split('@')[0] || 'User'
 
     const handleLogout = () => {
         dispatch(logout())
@@ -65,7 +73,21 @@ const Navbar = () => {
                         {isAuthenticated ? (
                             <div className="flex items-center gap-3">
                                 <Link href="/profile" className="flex items-center gap-1.5 text-sm font-medium text-slate-800">
-                                    <UserIcon size={16} /> {user?.name}
+                                    {user?.avatarUrl || user?.avatar ? (
+                                        <div className="w-6 h-6 rounded-full overflow-hidden ring-1 ring-slate-200 shrink-0">
+                                            <Image
+                                                src={user.avatarUrl || user.avatar}
+                                                alt={displayName}
+                                                width={24}
+                                                height={24}
+                                                unoptimized
+                                                className="w-full h-full object-cover"
+                                            />
+                                        </div>
+                                    ) : (
+                                        <UserIcon size={16} />
+                                    )}
+                                    <span>{displayName}</span>
                                 </Link>
                                 <button
                                     onClick={handleLogout}

@@ -4,7 +4,8 @@ import { useEffect, useRef } from 'react'
 import { Provider, useDispatch } from 'react-redux'
 import { makeStore } from '../lib/store'
 import { setAuth, setLoading } from '@/lib/features/auth/authSlice'
-import { refreshAuthToken, isTokenExpired } from '@/lib/apiClient'
+import { refreshAuthToken, isTokenExpired, graphqlRequest } from '@/lib/apiClient'
+import { GET_ME_QUERY } from '@/lib/graphql/user'
 
 function AuthInitializer() {
   const dispatch = useDispatch()
@@ -93,10 +94,59 @@ function AuthInitializer() {
           }
         }
 
+        if (user) {
+          const computedFullName = `${user.firstName || ''} ${user.lastName || ''}`.trim()
+          if (computedFullName && (!user.name || user.name === user.email?.split('@')[0])) {
+            user.name = computedFullName
+          }
+        }
+
+        // Restore saved avatar if missing from cached user object
+        const resolvedId = user?.id || user?.userId
+        if (resolvedId && (!user.avatar && !user.avatarUrl)) {
+          const dedicatedAvatar = localStorage.getItem(`user_avatar_${resolvedId}`)
+          if (dedicatedAvatar) {
+            user.avatar = dedicatedAvatar
+            user.avatarUrl = dedicatedAvatar
+          }
+        }
+
         // Keep cookie in sync so middleware doesn't reject routes on refresh
         document.cookie = `token=${token}; path=/; max-age=604800; SameSite=Lax`
 
         dispatch(setAuth({ user, token }))
+
+        // Fetch fresh user profile from backend in background to populate real name & avatar
+        graphqlRequest(GET_ME_QUERY)
+          .then((res) => {
+            const me = res?.me
+            if (me) {
+              const fullName = `${me.firstName || ''} ${me.lastName || ''}`.trim()
+              const uid = me.id || resolvedId
+              const dedicatedAvatar = uid && typeof window !== 'undefined'
+                ? localStorage.getItem(`user_avatar_${uid}`)
+                : null
+              const resolvedAvatar = me.avatarUrl || user?.avatar || user?.avatarUrl || dedicatedAvatar || null
+
+              const freshUser = {
+                ...user,
+                ...me,
+                name: fullName || me.username || (user?.name && user.name !== user?.email?.split('@')[0] ? user.name : '') || me.email?.split('@')[0] || 'User',
+                firstName: me.firstName || user?.firstName || '',
+                lastName: me.lastName || user?.lastName || '',
+                avatar: resolvedAvatar,
+                avatarUrl: resolvedAvatar,
+              }
+
+              if (typeof window !== 'undefined') {
+                localStorage.setItem('user', JSON.stringify(freshUser))
+              }
+              dispatch(setAuth({ user: freshUser, token }))
+            }
+          })
+          .catch((err) => {
+            console.warn('AuthInitializer profile fetch notice:', err)
+          })
       } else {
         dispatch(setLoading(false))
       }

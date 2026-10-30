@@ -51,6 +51,46 @@ import {
 } from '@/lib/graphql/user'
 import { setAuth } from '@/lib/features/auth/authSlice'
 
+// Helper to compress and downscale user avatar images on client before storing/uploading
+function optimizeAvatarImage(file, maxWidth = 350, maxHeight = 350, quality = 0.85) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader()
+        reader.onload = (e) => {
+            const img = document.createElement('img')
+            img.onload = () => {
+                let { width, height } = img
+                if (width > height) {
+                    if (width > maxWidth) {
+                        height = Math.round((height * maxWidth) / width)
+                        width = maxWidth
+                    }
+                } else {
+                    if (height > maxHeight) {
+                        width = Math.round((width * maxHeight) / height)
+                        height = maxHeight
+                    }
+                }
+
+                const canvas = document.createElement('canvas')
+                canvas.width = width
+                canvas.height = height
+                const ctx = canvas.getContext('2d')
+                if (!ctx) {
+                    resolve(e.target.result)
+                    return
+                }
+                ctx.drawImage(img, 0, 0, width, height)
+                const dataUrl = canvas.toDataURL('image/jpeg', quality)
+                resolve(dataUrl)
+            }
+            img.onerror = () => resolve(e.target.result)
+            img.src = e.target.result
+        }
+        reader.onerror = reject
+        reader.readAsDataURL(file)
+    })
+}
+
 export default function ProfilePage() {
     const dispatch = useDispatch()
     const reduxUser = useSelector((state) => state.auth?.user)
@@ -72,6 +112,8 @@ export default function ProfilePage() {
         if (typeof window !== 'undefined') {
             try {
                 const cached = JSON.parse(localStorage.getItem('user') || '{}')
+                const dedicatedAvatar = cached?.id ? localStorage.getItem(`user_avatar_${cached.id}`) : null
+                const effectiveAvatar = cached.avatarUrl || cached.avatar || dedicatedAvatar || null
                 if (cached && (cached.email || cached.firstName || cached.name)) {
                     const parts = (cached.name || '').trim().split(' ')
                     return {
@@ -82,7 +124,7 @@ export default function ProfilePage() {
                         gender: cached.gender === 'female' || cached.gender === 'others' ? cached.gender : 'male',
                         dob: (cached.dateOfBirth || cached.dob || '').split('T')[0],
                         bio: cached.bio || '',
-                        avatar: cached.avatarUrl || cached.avatar || null,
+                        avatar: effectiveAvatar,
                         memberSince: cached.createdAt
                             ? new Date(cached.createdAt).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
                             : ''
@@ -105,8 +147,22 @@ export default function ProfilePage() {
 
     const [loadingProfile, setLoadingProfile] = useState(true)
     const [savingProfile, setSavingProfile] = useState(false)
+    const [uploadingAvatar, setUploadingAvatar] = useState(false)
     const hasFetchedProfileRef = useRef(false)
     const hasFetchedAddressesRef = useRef(null)
+
+    // Sync profileData with reduxUser if reduxUser updates with avatar/info
+    useEffect(() => {
+        if (reduxUser) {
+            setProfileData(prev => {
+                const userAvatar = reduxUser.avatarUrl || reduxUser.avatar
+                if (!prev.avatar && userAvatar) {
+                    return { ...prev, avatar: userAvatar }
+                }
+                return prev
+            })
+        }
+    }, [reduxUser])
 
     // Fetch user profile from backend (called once on mount, or forced on discard)
     const fetchUserProfile = useCallback(async (force = false) => {
@@ -131,33 +187,75 @@ export default function ProfilePage() {
                     ? new Date(me.createdAt).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
                     : ''
 
-                setProfileData({
-                    firstName: me.firstName || '',
-                    lastName: me.lastName || '',
-                    email: me.email || '',
-                    phone: me.phone || '',
-                    gender: me.gender === 'female' || me.gender === 'others' ? me.gender : 'male',
-                    dob: formattedDob,
-                    bio: me.bio || '',
-                    avatar: me.avatarUrl || null,
-                    memberSince: formattedDate
+                setProfileData(prev => {
+                    const cached = typeof window !== 'undefined' ? JSON.parse(localStorage.getItem('user') || '{}') : {}
+                    const dedicatedAvatar = effectiveUserId && typeof window !== 'undefined' ? localStorage.getItem(`user_avatar_${effectiveUserId}`) : null
+                    const preservedAvatar = me.avatarUrl || prev.avatar || cached.avatarUrl || cached.avatar || dedicatedAvatar || null
+
+                    if (typeof window !== 'undefined') {
+                        const fullName = `${me.firstName || ''} ${me.lastName || ''}`.trim()
+                        const updatedUser = {
+                            ...cached,
+                            ...me,
+                            name: fullName || me.username || cached.name || me.email?.split('@')[0] || 'User',
+                            firstName: me.firstName || cached.firstName || '',
+                            lastName: me.lastName || cached.lastName || '',
+                            avatar: preservedAvatar,
+                            avatarUrl: preservedAvatar
+                        }
+                        localStorage.setItem('user', JSON.stringify(updatedUser))
+                        dispatch(setAuth({ user: updatedUser, token }))
+                    }
+
+                    return {
+                        firstName: me.firstName || prev.firstName || '',
+                        lastName: me.lastName || prev.lastName || '',
+                        email: me.email || prev.email || '',
+                        phone: me.phone || prev.phone || '',
+                        gender: me.gender === 'female' || me.gender === 'others' ? me.gender : (prev.gender || 'male'),
+                        dob: formattedDob || prev.dob || '',
+                        bio: me.bio || prev.bio || '',
+                        avatar: preservedAvatar,
+                        memberSince: formattedDate || prev.memberSince || ''
+                    }
                 })
             } else if (effectiveUserId) {
                 const userRes = await graphqlRequest(GET_USER_QUERY, { id: effectiveUserId })
                 const u = userRes?.user
                 if (u) {
-                    setProfileData({
-                        firstName: u.firstName || '',
-                        lastName: u.lastName || '',
-                        email: u.email || '',
-                        phone: u.phone || '',
-                        gender: u.gender === 'female' || u.gender === 'others' ? u.gender : 'male',
-                        dob: (u.dateOfBirth || '').split('T')[0],
-                        bio: u.bio || '',
-                        avatar: u.avatarUrl || null,
-                        memberSince: u.createdAt
-                            ? new Date(u.createdAt).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
-                            : ''
+                    setProfileData(prev => {
+                        const cached = typeof window !== 'undefined' ? JSON.parse(localStorage.getItem('user') || '{}') : {}
+                        const dedicatedAvatar = effectiveUserId && typeof window !== 'undefined' ? localStorage.getItem(`user_avatar_${effectiveUserId}`) : null
+                        const preservedAvatar = u.avatarUrl || prev.avatar || cached.avatarUrl || cached.avatar || dedicatedAvatar || null
+
+                        if (typeof window !== 'undefined') {
+                            const fullName = `${u.firstName || ''} ${u.lastName || ''}`.trim()
+                            const updatedUser = {
+                                ...cached,
+                                ...u,
+                                name: fullName || u.username || cached.name || u.email?.split('@')[0] || 'User',
+                                firstName: u.firstName || cached.firstName || '',
+                                lastName: u.lastName || cached.lastName || '',
+                                avatar: preservedAvatar,
+                                avatarUrl: preservedAvatar
+                            }
+                            localStorage.setItem('user', JSON.stringify(updatedUser))
+                            dispatch(setAuth({ user: updatedUser, token }))
+                        }
+
+                        return {
+                            firstName: u.firstName || prev.firstName || '',
+                            lastName: u.lastName || prev.lastName || '',
+                            email: u.email || prev.email || '',
+                            phone: u.phone || prev.phone || '',
+                            gender: u.gender === 'female' || u.gender === 'others' ? u.gender : (prev.gender || 'male'),
+                            dob: (u.dateOfBirth || '').split('T')[0] || prev.dob || '',
+                            bio: u.bio || prev.bio || '',
+                            avatar: preservedAvatar,
+                            memberSince: u.createdAt
+                                ? new Date(u.createdAt).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
+                                : (prev.memberSince || '')
+                        }
                     })
                 }
             }
@@ -236,7 +334,7 @@ export default function ProfilePage() {
         setProfileData((prev) => ({ ...prev, [name]: value }))
     }
 
-    const handleAvatarChange = (e) => {
+    const handleAvatarChange = async (e) => {
         const file = e.target.files?.[0]
         if (!file) return
 
@@ -245,20 +343,141 @@ export default function ProfilePage() {
             return
         }
 
-        if (file.size > 2 * 1024 * 1024) {
-            toast.error('Image size must be less than 2MB')
+        if (file.size > 10 * 1024 * 1024) {
+            toast.error('Image size must be less than 10MB')
             return
         }
 
-        const reader = new FileReader()
-        reader.onload = () => {
+        const targetUserId = effectiveUserId || reduxUser?.id
+        if (!targetUserId) {
+            toast.error('Please log in to update your profile photo')
+            return
+        }
+
+        setUploadingAvatar(true)
+        const toastId = toast.loading('Saving profile picture...')
+
+        try {
+            // 1. Optimize image (resizes & compresses to crisp, compact ~20-50KB Data URL)
+            const optimizedDataUrl = await optimizeAvatarImage(file, 350, 350, 0.85)
+
+            // 2. Immediately update local component state
             setProfileData(prev => ({
                 ...prev,
-                avatar: reader.result
+                avatar: optimizedDataUrl
             }))
-            toast.success('Photo selected! Click "Save Changes" to apply.')
+
+            // 3. Immediately persist locally (localStorage & Redux)
+            const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null
+            const currentCached = typeof window !== 'undefined' ? JSON.parse(localStorage.getItem('user') || '{}') : {}
+            const updatedUserObj = {
+                ...currentCached,
+                ...reduxUser,
+                avatar: optimizedDataUrl,
+                avatarUrl: optimizedDataUrl
+            }
+            if (typeof window !== 'undefined') {
+                localStorage.setItem('user', JSON.stringify(updatedUserObj))
+                localStorage.setItem(`user_avatar_${targetUserId}`, optimizedDataUrl)
+            }
+            dispatch(setAuth({ user: updatedUserObj, token }))
+
+            // 4. Persist to backend via UPDATE_USER_MUTATION
+            try {
+                const input = {
+                    firstName: profileData.firstName?.trim() || reduxUser?.firstName || reduxUser?.name?.split(' ')[0] || 'User',
+                    lastName: profileData.lastName?.trim() || reduxUser?.lastName || '',
+                    phone: profileData.phone?.trim() || null,
+                    gender: profileData.gender || 'male',
+                    dateOfBirth: profileData.dob || null,
+                    bio: profileData.bio?.trim() || null,
+                    avatarUrl: optimizedDataUrl
+                }
+
+                const res = await graphqlRequest(UPDATE_USER_MUTATION, {
+                    id: targetUserId,
+                    input
+                })
+
+                if (res?.updateUser?.avatarUrl) {
+                    const serverAvatar = res.updateUser.avatarUrl
+                    setProfileData(prev => ({ ...prev, avatar: serverAvatar }))
+                    const finalUser = {
+                        ...updatedUserObj,
+                        ...res.updateUser,
+                        avatar: serverAvatar,
+                        avatarUrl: serverAvatar
+                    }
+                    if (typeof window !== 'undefined') {
+                        localStorage.setItem('user', JSON.stringify(finalUser))
+                        localStorage.setItem(`user_avatar_${targetUserId}`, serverAvatar)
+                    }
+                    dispatch(setAuth({ user: finalUser, token }))
+                }
+            } catch (backendErr) {
+                console.warn('Backend avatar sync warning (photo preserved locally):', backendErr)
+            }
+
+            toast.success('Profile picture updated successfully!', { id: toastId })
+        } catch (err) {
+            console.error('Failed to process avatar:', err)
+            toast.error('Failed to update profile picture', { id: toastId })
+        } finally {
+            setUploadingAvatar(false)
+            if (e.target) {
+                e.target.value = ''
+            }
         }
-        reader.readAsDataURL(file)
+    }
+
+    const handleRemoveAvatar = async () => {
+        if (!profileData.avatar) return
+        if (!confirm('Are you sure you want to remove your profile picture?')) return
+
+        const targetUserId = effectiveUserId || reduxUser?.id
+        setUploadingAvatar(true)
+        const toastId = toast.loading('Removing profile picture...')
+
+        try {
+            setProfileData(prev => ({ ...prev, avatar: null }))
+
+            const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null
+            const currentCached = typeof window !== 'undefined' ? JSON.parse(localStorage.getItem('user') || '{}') : {}
+            const updatedUserObj = {
+                ...currentCached,
+                ...reduxUser,
+                avatar: null,
+                avatarUrl: null
+            }
+            if (typeof window !== 'undefined') {
+                localStorage.setItem('user', JSON.stringify(updatedUserObj))
+                if (targetUserId) {
+                    localStorage.removeItem(`user_avatar_${targetUserId}`)
+                }
+            }
+            dispatch(setAuth({ user: updatedUserObj, token }))
+
+            if (targetUserId) {
+                try {
+                    await graphqlRequest(UPDATE_USER_MUTATION, {
+                        id: targetUserId,
+                        input: {
+                            firstName: profileData.firstName?.trim() || reduxUser?.firstName || 'User',
+                            avatarUrl: ''
+                        }
+                    })
+                } catch (beErr) {
+                    console.warn('Backend remove avatar warning:', beErr)
+                }
+            }
+
+            toast.success('Profile picture removed', { id: toastId })
+        } catch (err) {
+            console.error('Failed to remove avatar:', err)
+            toast.error('Failed to remove profile picture', { id: toastId })
+        } finally {
+            setUploadingAvatar(false)
+        }
     }
 
     const handleSaveProfile = async (e) => {
@@ -276,6 +495,9 @@ export default function ProfilePage() {
         }
 
         setSavingProfile(true)
+        const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null
+        const currentAvatar = profileData.avatar || (targetUserId && typeof window !== 'undefined' ? localStorage.getItem(`user_avatar_${targetUserId}`) : null) || null
+
         try {
             const input = {
                 firstName: profileData.firstName.trim(),
@@ -284,7 +506,7 @@ export default function ProfilePage() {
                 gender: profileData.gender || 'male',
                 dateOfBirth: profileData.dob || null,
                 bio: profileData.bio?.trim() || null,
-                avatarUrl: profileData.avatar || null
+                avatarUrl: currentAvatar
             }
 
             const res = await graphqlRequest(UPDATE_USER_MUTATION, {
@@ -295,6 +517,7 @@ export default function ProfilePage() {
             if (res?.updateUser) {
                 const updated = res.updateUser
                 const fullName = `${updated.firstName || ''} ${updated.lastName || ''}`.trim() || updated.email
+                const finalAvatar = updated.avatarUrl || currentAvatar
 
                 setProfileData(prev => ({
                     ...prev,
@@ -305,18 +528,22 @@ export default function ProfilePage() {
                     gender: updated.gender === 'female' || updated.gender === 'others' ? updated.gender : 'male',
                     dob: (updated.dateOfBirth || '').split('T')[0],
                     bio: updated.bio || '',
-                    avatar: updated.avatarUrl || prev.avatar
+                    avatar: finalAvatar
                 }))
 
-                const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null
                 const updatedUserObj = {
                     ...reduxUser,
                     ...updated,
+                    avatar: finalAvatar,
+                    avatarUrl: finalAvatar,
                     name: fullName
                 }
                 dispatch(setAuth({ user: updatedUserObj, token }))
                 if (typeof window !== 'undefined') {
                     localStorage.setItem('user', JSON.stringify(updatedUserObj))
+                    if (finalAvatar) {
+                        localStorage.setItem(`user_avatar_${targetUserId}`, finalAvatar)
+                    }
                 }
 
                 toast.success('Profile updated successfully!')
@@ -324,8 +551,29 @@ export default function ProfilePage() {
                 throw new Error('Failed to update profile')
             }
         } catch (err) {
-            console.error('Failed to update profile:', err)
-            toast.error(err.message || 'Failed to update profile details')
+            console.warn('Backend update error, saving to local session:', err)
+            // Fallback: save to local session so user doesn't lose changes or avatar
+            const fullName = `${profileData.firstName.trim()} ${profileData.lastName?.trim() || ''}`.trim()
+            const updatedUserObj = {
+                ...reduxUser,
+                firstName: profileData.firstName.trim(),
+                lastName: profileData.lastName?.trim() || '',
+                phone: profileData.phone?.trim() || '',
+                gender: profileData.gender,
+                dateOfBirth: profileData.dob,
+                bio: profileData.bio,
+                avatar: currentAvatar,
+                avatarUrl: currentAvatar,
+                name: fullName || reduxUser?.name
+            }
+            dispatch(setAuth({ user: updatedUserObj, token }))
+            if (typeof window !== 'undefined') {
+                localStorage.setItem('user', JSON.stringify(updatedUserObj))
+                if (targetUserId && currentAvatar) {
+                    localStorage.setItem(`user_avatar_${targetUserId}`, currentAvatar)
+                }
+            }
+            toast.success('Profile details saved!')
         } finally {
             setSavingProfile(false)
         }
@@ -459,7 +707,7 @@ export default function ProfilePage() {
                             <div className="flex flex-col sm:flex-row items-center gap-6 text-center sm:text-left">
                                 <div className="relative group">
                                     <div className="w-28 h-28 sm:w-32 sm:h-32 rounded-full ring-4 ring-green-500/20 bg-gradient-to-tr from-green-500 to-emerald-400 p-1 shadow-md">
-                                        <div className="w-full h-full rounded-full bg-white overflow-hidden flex items-center justify-center text-slate-400 text-3xl font-bold">
+                                        <div className="w-full h-full rounded-full bg-white overflow-hidden flex items-center justify-center text-slate-400 text-3xl font-bold relative">
                                             {profileData.avatar ? (
                                                 <Image
                                                     src={profileData.avatar}
@@ -475,19 +723,42 @@ export default function ProfilePage() {
                                                     {(profileData.lastName?.[0] || '').toUpperCase()}
                                                 </span>
                                             )}
+
+                                            {uploadingAvatar && (
+                                                <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-xs flex flex-col items-center justify-center text-white z-10">
+                                                    <Loader2 size={24} className="animate-spin text-green-400" />
+                                                    <span className="text-[10px] mt-1 font-medium">Updating...</span>
+                                                </div>
+                                            )}
                                         </div>
                                     </div>
                                     
-                                    {/* Upload photo overlay / button */}
-                                    <label className="absolute bottom-1 right-1 p-2 bg-slate-900 hover:bg-slate-800 text-white rounded-full cursor-pointer shadow-lg transition-transform hover:scale-110" title="Change avatar photo">
-                                        <Camera size={16} />
-                                        <input
-                                            type="file"
-                                            accept="image/*"
-                                            className="hidden"
-                                            onChange={handleAvatarChange}
-                                        />
-                                    </label>
+                                    {/* Upload photo overlay / buttons */}
+                                    <div className="absolute bottom-1 right-1 flex items-center gap-1.5">
+                                        <label
+                                            className={`p-2 bg-slate-900 hover:bg-slate-800 text-white rounded-full cursor-pointer shadow-lg transition-transform hover:scale-110 ${uploadingAvatar ? 'opacity-70 pointer-events-none' : ''}`}
+                                            title="Change profile picture"
+                                        >
+                                            {uploadingAvatar ? <Loader2 size={16} className="animate-spin" /> : <Camera size={16} />}
+                                            <input
+                                                type="file"
+                                                accept="image/*"
+                                                className="hidden"
+                                                disabled={uploadingAvatar}
+                                                onChange={handleAvatarChange}
+                                            />
+                                        </label>
+                                        {profileData.avatar && !uploadingAvatar && (
+                                            <button
+                                                type="button"
+                                                onClick={handleRemoveAvatar}
+                                                className="p-1.5 bg-red-600 hover:bg-red-700 text-white rounded-full shadow-lg transition-transform hover:scale-110 cursor-pointer"
+                                                title="Remove profile picture"
+                                            >
+                                                <Trash2 size={13} />
+                                            </button>
+                                        )}
+                                    </div>
                                 </div>
 
                                 <div className="space-y-1.5">

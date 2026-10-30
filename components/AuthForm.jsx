@@ -33,6 +33,7 @@ import {
     VERIFY_EMAIL_MUTATION,
     RESEND_VERIFICATION_EMAIL_MUTATION
 } from '@/lib/graphql/auth'
+import { GET_ME_QUERY } from '@/lib/graphql/user'
 
 const ROLE_CONFIGS = {
     USER: {
@@ -168,16 +169,22 @@ function AuthFormInner({
                 const base64Url = token.split('.')[1]
                 const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/')
                 const decoded = JSON.parse(atob(base64))
+                const regFullName = `${formData.firstName || ''} ${formData.lastName || ''}`.trim()
                 user = {
                     id: decoded.userId || decoded.id || decoded.sub || '',
-                    name: decoded.name || `${formData.firstName} ${formData.lastName}`.trim() || formData.email.split('@')[0],
+                    name: decoded.name || regFullName || formData.email.split('@')[0],
+                    firstName: formData.firstName || '',
+                    lastName: formData.lastName || '',
                     email: decoded.email || formData.email,
                     role: authData.role || decoded.role || currentRole,
                 }
             } catch {
+                const regFullName = `${formData.firstName || ''} ${formData.lastName || ''}`.trim()
                 user = {
                     id: '',
-                    name: `${formData.firstName} ${formData.lastName}`.trim() || formData.email.split('@')[0],
+                    name: regFullName || formData.email.split('@')[0],
+                    firstName: formData.firstName || '',
+                    lastName: formData.lastName || '',
                     email: formData.email,
                     role: authData.role || currentRole,
                 }
@@ -198,6 +205,29 @@ function AuthFormInner({
             user: user,
             token: token,
         }))
+
+        // Fetch complete user profile from backend to get verified firstName & lastName
+        graphqlRequest(GET_ME_QUERY)
+            .then((res) => {
+                if (res?.me) {
+                    const me = res.me
+                    const fullName = `${me.firstName || ''} ${me.lastName || ''}`.trim()
+                    const freshUser = {
+                        ...user,
+                        ...me,
+                        name: fullName || me.username || user?.name || me.email?.split('@')[0] || 'User',
+                        firstName: me.firstName || user?.firstName || '',
+                        lastName: me.lastName || user?.lastName || '',
+                        avatar: me.avatarUrl || user?.avatar || null,
+                        avatarUrl: me.avatarUrl || user?.avatarUrl || null,
+                    }
+                    if (typeof window !== 'undefined') {
+                        localStorage.setItem('user', JSON.stringify(freshUser))
+                    }
+                    dispatch(setAuth({ user: freshUser, token }))
+                }
+            })
+            .catch(() => {})
 
         toast.success(`Welcome back, ${user?.name || activeConfig.label}!`)
 
