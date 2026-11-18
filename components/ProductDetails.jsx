@@ -53,29 +53,24 @@ const ProductDetails = ({ product }) => {
     }, [isAuthenticated, productId, dispatch])
 
     const addToCartHandler = async () => {
-        if (!isAuthenticated) {
-            if (typeof window !== 'undefined') {
-                localStorage.setItem('pendingCartItem', productId)
-            }
-            toast.error('Please login to add items to your cart')
-            router.push(`/login?redirect=${encodeURIComponent(`/product/${productId}`)}&addCart=${productId}`)
-            return
-        }
+        // Optimistically add to cart for both guests and authenticated users
         dispatch(addToCart({ productId }))
         toast.success('Added to cart')
 
-        try {
-            const res = await graphqlRequest(ADD_TO_CART_MUTATION, {
-                input: {
-                    productId: String(productId),
-                    quantity: 1,
-                },
-            })
-            if (res?.addToCart) {
-                dispatch(setCart(res.addToCart))
+        if (isAuthenticated) {
+            try {
+                const res = await graphqlRequest(ADD_TO_CART_MUTATION, {
+                    input: {
+                        productId: String(productId),
+                        quantity: 1,
+                    },
+                })
+                if (res?.addToCart) {
+                    dispatch(setCart(res.addToCart))
+                }
+            } catch (err) {
+                console.warn('Backend addToCart notice:', err)
             }
-        } catch (err) {
-            console.warn('Backend addToCart notice:', err)
         }
     }
 

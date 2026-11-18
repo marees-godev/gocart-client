@@ -9,6 +9,7 @@ import { logout } from "@/lib/features/auth/authSlice";
 import { graphqlRequest } from "@/lib/apiClient";
 import { LOGOUT_MUTATION } from "@/lib/graphql/auth";
 import CurrencySelector from "./CurrencySelector";
+import { promptLoginModal } from "./AuthModalContext";
 
 const Navbar = () => {
 
@@ -109,9 +110,13 @@ const Navbar = () => {
                                 </button>
                             </div>
                         ) : (
-                            <Link href="/login" className="px-8 py-2 bg-indigo-500 hover:bg-indigo-600 transition text-white rounded-full">
+                            <button 
+                                type="button"
+                                onClick={() => promptLoginModal('Sign in to your account')}
+                                className="px-8 py-2 bg-indigo-500 hover:bg-indigo-600 transition text-white rounded-full font-medium text-sm cursor-pointer shadow-xs active:scale-95"
+                            >
                                 Login
-                            </Link>
+                            </button>
                         )}
                     </div>
                 </div>

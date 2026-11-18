@@ -15,30 +15,23 @@ const Counter = ({ productId }) => {
     const router = useRouter();
 
     const addToCartHandler = async () => {
-        if (!isAuthenticated) {
-            if (typeof window !== 'undefined') {
-                localStorage.setItem('pendingCartItem', productId)
-            }
-            toast.error('Please login to update your cart')
-            router.push(`/login?redirect=${encodeURIComponent('/cart')}&addCart=${productId}`)
-            return
-        }
-
-        // Optimistic UI update
+        // Optimistic UI update for both guests and authenticated users
         dispatch(addToCart({ productId }))
 
-        try {
-            const res = await graphqlRequest(ADD_TO_CART_MUTATION, {
-                input: {
-                    productId: String(productId),
-                    quantity: 1,
-                },
-            })
-            if (res?.addToCart) {
-                dispatch(setCart(res.addToCart))
+        if (isAuthenticated) {
+            try {
+                const res = await graphqlRequest(ADD_TO_CART_MUTATION, {
+                    input: {
+                        productId: String(productId),
+                        quantity: 1,
+                    },
+                })
+                if (res?.addToCart) {
+                    dispatch(setCart(res.addToCart))
+                }
+            } catch (err) {
+                console.warn('Backend addToCart notice:', err)
             }
-        } catch (err) {
-            console.warn('Backend addToCart notice:', err)
         }
     }
 

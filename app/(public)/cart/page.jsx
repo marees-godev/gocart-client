@@ -2,8 +2,9 @@
 import Counter from "@/components/Counter";
 import OrderSummary from "@/components/OrderSummary";
 import PageTitle from "@/components/PageTitle";
+import { promptLoginModal } from "@/components/AuthModalContext";
 import { deleteItemFromCart, clearCart, setCart } from "@/lib/features/cart/cartSlice";
-import { Trash2Icon, LogIn, ShoppingCart, ArrowRight, RotateCcw } from "lucide-react";
+import { Trash2Icon, LogIn, ShoppingCart, ArrowRight, UserCheck, Sparkles } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useState } from "react";
@@ -14,7 +15,6 @@ import { graphqlRequest } from "@/lib/apiClient";
 import { REMOVE_FROM_CART_MUTATION, CLEAR_CART_MUTATION } from "@/lib/graphql/cart";
 
 export default function Cart() {
-
     const { formatPrice } = useCurrency();
 
     const { cartItems } = useSelector(state => state.cart);
@@ -40,37 +40,37 @@ export default function Cart() {
             }
         }
         setCartArray(cartArray);
-    }
+    };
 
     const handleDeleteItemFromCart = async (productId) => {
-        dispatch(deleteItemFromCart({ productId }))
+        dispatch(deleteItemFromCart({ productId }));
         if (isAuthenticated) {
             try {
                 const res = await graphqlRequest(REMOVE_FROM_CART_MUTATION, {
                     productId: String(productId),
                     userId: user?.id ? String(user.id) : undefined,
-                })
+                });
                 if (res?.removeFromCart) {
-                    dispatch(setCart(res.removeFromCart))
+                    dispatch(setCart(res.removeFromCart));
                 }
             } catch (err) {
-                console.warn('Backend removeFromCart notice:', err)
+                console.warn('Backend removeFromCart notice:', err);
             }
         }
-    }
+    };
 
     const handleClearCart = async () => {
-        dispatch(clearCart())
+        dispatch(clearCart());
         if (isAuthenticated) {
             try {
                 await graphqlRequest(CLEAR_CART_MUTATION, {
                     userId: user?.id ? String(user.id) : undefined,
-                })
+                });
             } catch (err) {
-                console.warn('Backend clearCart notice:', err)
+                console.warn('Backend clearCart notice:', err);
             }
         }
-    }
+    };
 
     useEffect(() => {
         if (products.length > 0) {
@@ -78,105 +78,127 @@ export default function Cart() {
         }
     }, [cartItems, products]);
 
-    // Unauthenticated user prompt
-    if (!isAuthenticated) {
-        return (
-            <div className="min-h-[75vh] mx-6 flex flex-col items-center justify-center text-center px-4">
-                <div className="w-16 h-16 rounded-full bg-indigo-50 border border-indigo-100 flex items-center justify-center mb-4 text-indigo-600">
-                    <LogIn size={28} />
-                </div>
-                <h1 className="text-2xl sm:text-3xl font-bold text-slate-800">Please Login to see your cart items</h1>
-                <p className="text-slate-500 text-sm mt-2 max-w-md">
-                    Sign in to view items in your shopping cart, checkout, or track your orders.
-                </p>
-                <Link
-                    href="/login?redirect=/cart"
-                    className="mt-6 inline-flex items-center gap-2 px-6 py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-medium rounded-full text-sm transition shadow-sm cursor-pointer"
-                >
-                    Login to Your Account <ArrowRight size={16} />
-                </Link>
-            </div>
-        )
-    }
+    return (
+        <>
+            {cartArray.length > 0 ? (
+                <div className="min-h-screen mx-6 text-slate-800">
+                    <div className="max-w-7xl mx-auto">
+                        {/* Guest Notice Banner */}
+                        {!isAuthenticated && (
+                            <div className="mt-4 p-3 rounded-2xl bg-gradient-to-r from-emerald-50 via-green-50 to-teal-50 border border-green-200/70 flex items-center justify-between text-xs text-slate-700 shadow-xs">
+                                <div className="flex items-center gap-2">
+                                    <div className="p-1.5 rounded-lg bg-green-100 text-green-700">
+                                        <Sparkles size={14} />
+                                    </div>
+                                    <span>
+                                        You are currently <strong>browsing as a guest</strong>. Your items are saved in this browser.
+                                    </span>
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={() => promptLoginModal('Sign in to your account')}
+                                    className="px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white font-semibold rounded-xl text-xs transition active:scale-95 cursor-pointer flex items-center gap-1.5 shadow-xs shrink-0 ml-3"
+                                >
+                                    <LogIn size={13} /> Sign In
+                                </button>
+                            </div>
+                        )}
 
-    return cartArray.length > 0 ? (
-        <div className="min-h-screen mx-6 text-slate-800">
+                        {/* Title */}
+                        <PageTitle heading="My Cart" text="items in your cart" linkText="Add more" />
 
-            <div className="max-w-7xl mx-auto ">
-                {/* Title */}
-                <PageTitle heading="My Cart" text="items in your cart" linkText="Add more" />
-
-                <div className="flex items-start justify-between gap-5 max-lg:flex-col">
-
-                    <div className="w-full max-w-4xl">
-                        <table className="w-full text-slate-600 table-auto">
-                            <thead>
-                                <tr className="max-sm:text-sm">
-                                    <th className="text-left">Product</th>
-                                    <th>Quantity</th>
-                                    <th>Total Price</th>
-                                    <th className="max-md:hidden">Remove</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {
-                                    cartArray.map((item, index) => (
-                                        <tr key={index} className="space-x-2">
-                                            <td className="flex gap-3 my-4">
-                                                <div className="flex gap-3 items-center justify-center bg-slate-100 size-18 rounded-md">
-                                                    <Image src={(Array.isArray(item.images) && item.images[0]) || item.imageUrl || assets.product_img1} className="h-14 w-auto object-contain" alt={item.name || ""} width={45} height={45} unoptimized />
-                                                </div>
-                                                <div>
-                                                    <p className="max-sm:text-sm">{item.name}</p>
-                                                    <p className="text-xs text-slate-500">{item.category}</p>
-                                                    <p className="text-slate-700 font-medium">{formatPrice(item.price)}</p>
-                                                </div>
-                                            </td>
-                                            <td className="text-center">
-                                                <Counter productId={item.id} />
-                                            </td>
-                                            <td className="text-center">{formatPrice(item.price * item.quantity)}</td>
-                                            <td className="text-center max-md:hidden">
-                                                <button onClick={() => handleDeleteItemFromCart(item.id)} className=" text-red-500 hover:bg-red-50 p-2.5 rounded-full active:scale-95 transition-all cursor-pointer">
-                                                    <Trash2Icon size={18} />
-                                                </button>
-                                            </td>
+                        <div className="flex items-start justify-between gap-5 max-lg:flex-col">
+                            <div className="w-full max-w-4xl">
+                                <table className="w-full text-slate-600 table-auto">
+                                    <thead>
+                                        <tr className="max-sm:text-sm">
+                                            <th className="text-left">Product</th>
+                                            <th>Quantity</th>
+                                            <th>Total Price</th>
+                                            <th className="max-md:hidden">Remove</th>
                                         </tr>
-                                    ))
-                                }
-                            </tbody>
-                        </table>
-                        <div className="flex justify-between items-center mt-4 pt-3 border-t border-slate-100">
-                            <Link href="/shop" className="text-xs text-indigo-600 hover:text-indigo-700 font-medium inline-flex items-center gap-1">
-                                ← Continue Shopping
-                            </Link>
-                            <button
-                                onClick={handleClearCart}
-                                className="text-xs text-red-500 hover:text-red-700 font-medium inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg hover:bg-red-50 transition cursor-pointer"
-                            >
-                                <Trash2Icon size={14} /> Clear entire cart
-                            </button>
+                                    </thead>
+                                    <tbody>
+                                        {cartArray.map((item, index) => (
+                                            <tr key={index} className="space-x-2">
+                                                <td className="flex gap-3 my-4">
+                                                    <div className="flex gap-3 items-center justify-center bg-slate-100 size-18 rounded-md">
+                                                        <Image 
+                                                            src={(Array.isArray(item.images) && item.images[0]) || item.imageUrl || assets.product_img1} 
+                                                            className="h-14 w-auto object-contain" 
+                                                            alt={item.name || ""} 
+                                                            width={45} 
+                                                            height={45} 
+                                                            unoptimized 
+                                                        />
+                                                    </div>
+                                                    <div>
+                                                        <p className="max-sm:text-sm font-medium">{item.name}</p>
+                                                        <p className="text-xs text-slate-500">{item.category}</p>
+                                                        <p className="text-slate-700 font-medium">{formatPrice(item.price)}</p>
+                                                    </div>
+                                                </td>
+                                                <td className="text-center">
+                                                    <Counter productId={item.id} />
+                                                </td>
+                                                <td className="text-center font-medium">{formatPrice(item.price * item.quantity)}</td>
+                                                <td className="text-center max-md:hidden">
+                                                    <button 
+                                                        onClick={() => handleDeleteItemFromCart(item.id)} 
+                                                        className="text-red-500 hover:bg-red-50 p-2.5 rounded-full active:scale-95 transition-all cursor-pointer"
+                                                        title="Remove item"
+                                                    >
+                                                        <Trash2Icon size={18} />
+                                                    </button>
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                                <div className="flex justify-between items-center mt-4 pt-3 border-t border-slate-100">
+                                    <Link href="/shop" className="text-xs text-indigo-600 hover:text-indigo-700 font-medium inline-flex items-center gap-1">
+                                        ← Continue Shopping
+                                    </Link>
+                                    <button
+                                        onClick={handleClearCart}
+                                        className="text-xs text-red-500 hover:text-red-700 font-medium inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg hover:bg-red-50 transition cursor-pointer"
+                                    >
+                                        <Trash2Icon size={14} /> Clear entire cart
+                                    </button>
+                                </div>
+                            </div>
+                            <OrderSummary totalPrice={totalPrice} items={cartArray} />
                         </div>
                     </div>
-                    <OrderSummary totalPrice={totalPrice} items={cartArray} />
                 </div>
-            </div>
-        </div>
-    ) : (
-        <div className="min-h-[75vh] mx-6 flex flex-col items-center justify-center text-center px-4">
-            <div className="w-16 h-16 rounded-full bg-slate-100 flex items-center justify-center mb-4 text-slate-400">
-                <ShoppingCart size={28} />
-            </div>
-            <h1 className="text-2xl sm:text-3xl font-semibold text-slate-700">Your cart is empty</h1>
-            <p className="text-slate-400 text-sm mt-2 max-w-md">
-                Looks like you haven't added anything to your cart yet. Explore our marketplace!
-            </p>
-            <Link
-                href="/shop"
-                className="mt-6 inline-flex items-center gap-2 px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-medium rounded-full text-sm transition cursor-pointer"
-            >
-                Browse Products <ArrowRight size={16} />
-            </Link>
-        </div>
-    )
+            ) : (
+                <div className="min-h-[75vh] mx-6 flex flex-col items-center justify-center text-center px-4">
+                    <div className="w-16 h-16 rounded-full bg-slate-100 flex items-center justify-center mb-4 text-slate-400">
+                        <ShoppingCart size={28} />
+                    </div>
+                    <h1 className="text-2xl sm:text-3xl font-semibold text-slate-700">Your cart is empty</h1>
+                    <p className="text-slate-400 text-sm mt-2 max-w-md">
+                        Looks like you haven't added anything to your cart yet. Explore our marketplace!
+                    </p>
+                    <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
+                        <Link
+                            href="/shop"
+                            className="inline-flex items-center gap-2 px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-medium rounded-full text-sm transition cursor-pointer"
+                        >
+                            Browse Products <ArrowRight size={16} />
+                        </Link>
+                        {!isAuthenticated && (
+                            <button
+                                type="button"
+                                onClick={() => promptLoginModal('Sign in to your account')}
+                                className="inline-flex items-center gap-2 px-5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium rounded-full text-sm transition cursor-pointer"
+                            >
+                                <LogIn size={15} /> Sign In
+                            </button>
+                        )}
+                    </div>
+                </div>
+            )}
+        </>
+    );
 }
