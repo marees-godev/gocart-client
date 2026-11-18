@@ -4,10 +4,11 @@ import Banner from "@/components/Banner";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import GoogleOAuthCallback from "@/components/GoogleOAuthCallback";
+import { AuthModalProvider } from "@/components/AuthModalContext";
 
 export default function PublicLayout({ children }) {
     return (
-        <>
+        <AuthModalProvider>
             <Suspense fallback={null}>
                 <GoogleOAuthCallback />
             </Suspense>
@@ -15,6 +16,6 @@ export default function PublicLayout({ children }) {
             <Navbar />
             {children}
             <Footer />
-        </>
+        </AuthModalProvider>
     );
 }
