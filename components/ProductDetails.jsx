@@ -3,7 +3,7 @@
 import { addToCart, setCart } from "@/lib/features/cart/cartSlice"
 import { StarIcon, TagIcon, EarthIcon, CreditCardIcon, UserIcon } from "lucide-react"
 import { useRouter } from "next/navigation"
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import Image from "next/image"
 import Counter from "./Counter"
 import { useDispatch, useSelector } from "react-redux"
@@ -29,9 +29,25 @@ const ProductDetails = ({ product }) => {
     const [mainImage, setMainImage] = useState(images[0])
     const [mainLoaded, setMainLoaded] = useState(false)
     const [selectedVariant, setSelectedVariant] = useState(product?.variants?.[0] || null)
+    const mainImgRef = useRef(null)
+
+    // Check if image is already cached/complete, or auto-resolve with safety timeout
+    useEffect(() => {
+        if (mainImgRef.current && mainImgRef.current.complete && mainImgRef.current.naturalWidth > 0) {
+            setMainLoaded(true)
+            return
+        }
+
+        // Safety fallback: prevents infinite shimmer if browser loaded without dispatching onLoad
+        const timer = setTimeout(() => {
+            setMainLoaded(true)
+        }, 800)
+
+        return () => clearTimeout(timer)
+    }, [mainImage])
 
     useEffect(() => {
-        if (images.length > 0) {
+        if (images.length > 0 && images[0] !== mainImage) {
             setMainImage(images[0])
             setMainLoaded(false)
         }
@@ -91,44 +107,61 @@ const ProductDetails = ({ product }) => {
     return (
         <div className="flex max-lg:flex-col gap-12">
             {/* Gallery Images */}
-            <div className="flex max-sm:flex-col-reverse gap-3">
-                <div className="flex sm:flex-col gap-3 max-h-[500px] overflow-y-auto no-scrollbar">
+            <div className="flex max-sm:flex-col-reverse gap-4">
+                <div className="flex sm:flex-col gap-3 max-h-[520px] overflow-y-auto no-scrollbar py-1">
                     {images.map((image, index) => (
                         <div
                             key={index}
-                            onClick={() => { setMainImage(image); setMainLoaded(false) }}
-                            className={`bg-slate-100 flex items-center justify-center size-24 rounded-lg group cursor-pointer border-2 transition ${
-                                mainImage === image ? 'border-green-600 shadow-sm' : 'border-transparent hover:border-slate-300'
+                            onClick={() => {
+                                if (mainImage !== image) {
+                                    setMainImage(image)
+                                    setMainLoaded(false)
+                                }
+                            }}
+                            className={`bg-white flex items-center justify-center size-20 sm:size-22 rounded-2xl group cursor-pointer border-2 p-2 transition-all duration-200 overflow-hidden ${
+                                mainImage === image 
+                                    ? 'border-green-600 ring-2 ring-green-600/20 shadow-md scale-102' 
+                                    : 'border-slate-200/80 hover:border-slate-400 hover:shadow-xs'
                             }`}
                         >
                             <Image
                                 src={image}
-                                className="group-hover:scale-105 transition object-contain max-h-20 w-auto"
+                                className="group-hover:scale-110 transition-transform duration-200 object-contain max-h-16 w-auto mix-blend-multiply"
                                 alt=""
-                                width={60}
-                                height={60}
+                                width={70}
+                                height={70}
                                 unoptimized
                             />
                         </div>
                     ))}
                 </div>
-                <div className="relative flex justify-center items-center h-100 sm:size-113 bg-slate-100 rounded-lg p-6 overflow-hidden">
+                <div className="relative flex justify-center items-center w-full min-h-[380px] sm:size-118 bg-gradient-to-b from-slate-50/80 via-white to-slate-50/90 rounded-3xl p-8 border border-slate-200/80 shadow-xs overflow-hidden">
+                    {/* Ambient studio backdrop */}
+                    <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(255,255,255,1)_0%,rgba(241,245,249,0.6)_100%)] pointer-events-none" />
+
                     {/* Shimmer shown while main image loads */}
                     {!mainLoaded && (
-                        <div className="absolute inset-0 rounded-lg overflow-hidden">
-                            <div className="w-full h-full bg-slate-200 relative overflow-hidden">
-                                <div className="absolute inset-0 -translate-x-full animate-[shimmer_1.4s_infinite] bg-gradient-to-r from-transparent via-white/60 to-transparent" />
+                        <div className="absolute inset-0 rounded-3xl overflow-hidden pointer-events-none z-20">
+                            <div className="w-full h-full bg-slate-200/80 relative overflow-hidden">
+                                <div className="absolute inset-0 -translate-x-full animate-[shimmer_1.4s_infinite] bg-gradient-to-r from-transparent via-white/70 to-transparent" />
                             </div>
                         </div>
                     )}
                     <Image
+                        ref={(node) => {
+                            mainImgRef.current = node
+                            if (node && node.complete && node.naturalWidth > 0) {
+                                setMainLoaded(true)
+                            }
+                        }}
                         src={mainImage || assets.product_img1}
                         alt={product.name || "Product"}
-                        width={350}
-                        height={350}
+                        width={420}
+                        height={420}
                         unoptimized
                         onLoad={() => setMainLoaded(true)}
-                        className={`object-contain max-h-[350px] w-auto hover:scale-105 transition-[transform,opacity] duration-300 ${mainLoaded ? 'opacity-100 animate-[img-fade_0.4s_ease-out]' : 'opacity-0'}`}
+                        onError={() => setMainLoaded(true)}
+                        className={`relative z-10 object-contain max-h-[360px] sm:max-h-[400px] w-auto mix-blend-multiply drop-shadow-xl hover:scale-105 transition-all duration-500 ease-out ${mainLoaded ? 'opacity-100 animate-[img-fade_0.4s_ease-out]' : 'opacity-0'}`}
                     />
                 </div>
             </div>

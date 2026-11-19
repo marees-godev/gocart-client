@@ -122,13 +122,13 @@ export default function Cart() {
                                         {cartArray.map((item, index) => (
                                             <tr key={index} className="space-x-2">
                                                 <td className="flex gap-3 my-4">
-                                                    <div className="flex gap-3 items-center justify-center bg-slate-100 size-18 rounded-md">
+                                                    <div className="flex items-center justify-center bg-white border border-slate-200/80 size-18 rounded-xl p-1.5 shadow-2xs shrink-0 overflow-hidden">
                                                         <Image 
                                                             src={(Array.isArray(item.images) && item.images[0]) || item.imageUrl || assets.product_img1} 
-                                                            className="h-14 w-auto object-contain" 
+                                                            className="w-full h-full object-contain mix-blend-multiply" 
                                                             alt={item.name || ""} 
-                                                            width={45} 
-                                                            height={45} 
+                                                            width={60} 
+                                                            height={60} 
                                                             unoptimized 
                                                         />
                                                     </div>

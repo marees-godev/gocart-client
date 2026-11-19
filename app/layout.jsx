@@ -18,7 +18,16 @@ export default function RootLayout({ children }) {
         <html lang="en">
             <body className={`${outfit.className} antialiased`}>
                 <StoreProvider>
-                    <Toaster />
+                    <Toaster 
+                        position="top-center"
+                        containerStyle={{
+                            zIndex: 999999,
+                        }}
+                        toastOptions={{
+                            className: 'text-sm font-medium',
+                            duration: 4000,
+                        }}
+                    />
                     {children}
                 </StoreProvider>
             </body>
