@@ -153,13 +153,6 @@ const AddressModal = ({ setShowAddressModal, editAddress = null, userId = null, 
                 toast.success('Address updated successfully!')
                 if (onSuccess) onSuccess(finalPayload)
             } else {
-                // CREATE Address on Backend
-                if (!effectiveUserId) {
-                    toast.error('Please log in to save your address to your account')
-                    setIsSubmitting(false)
-                    return
-                }
-
                 const input = {
                     label: formData.title,
                     fullName: formData.name.trim(),
@@ -173,10 +166,21 @@ const AddressModal = ({ setShowAddressModal, editAddress = null, userId = null, 
                     isDefault: Boolean(formData.isDefault),
                 }
 
+                if (!effectiveUserId) {
+                    const localPayload = normalizeAddress({
+                        id: `guest_addr_${Date.now()}`,
+                        ...formData
+                    })
+                    dispatch(addAddress(localPayload))
+                    toast.success('Address saved for this session!')
+                    if (onSuccess) onSuccess(localPayload)
+                    setShowAddressModal(false)
+                    return
+                }
+
                 let createdAddr = null
                 try {
                     const response = await graphqlRequest(CREATE_USER_ADDRESS_MUTATION, {
-                        userId: effectiveUserId,
                         input
                     })
                     if (response?.createUserAddress) {

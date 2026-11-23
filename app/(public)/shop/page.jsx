@@ -2,6 +2,7 @@
 
 import { Suspense, useEffect, useState, useMemo } from "react"
 import ProductCard from "@/components/ProductCard"
+import Loading from "@/components/Loading"
 import { MoveLeftIcon, X, Filter, Tag } from "lucide-react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { useSelector } from "react-redux"
@@ -274,7 +275,7 @@ function ShopContent() {
                 </div>
 
                 {/* Product Grid */}
-                <div className="grid grid-cols-2 sm:flex flex-wrap gap-6 xl:gap-12 mx-auto mb-32">
+                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 sm:gap-6 mx-auto mb-32">
                     {displayedProducts.length > 0 ? (
                         displayedProducts.map((product) => <ProductCard key={product.id} product={product} />)
                     ) : isLoading ? (
@@ -307,7 +308,7 @@ function ShopContent() {
 
 export default function Shop() {
     return (
-        <Suspense fallback={<div className="min-h-[70vh] flex items-center justify-center text-slate-400">Loading shop...</div>}>
+        <Suspense fallback={<Loading variant="catalog" title="Loading Product Catalog" subtitle="Curating verified marketplace listings & top deals..." />}>
             <ShopContent />
         </Suspense>
     )

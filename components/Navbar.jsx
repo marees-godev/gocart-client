@@ -1,5 +1,5 @@
 'use client'
-import { Search, ShoppingCart, LayoutDashboard, ShieldCheck, User as UserIcon, LogOut, Truck } from "lucide-react";
+import { Search, ShoppingCart, LayoutDashboard, ShieldCheck, User as UserIcon, LogOut, Truck, Package } from "lucide-react";
 import Link from "next/link";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
@@ -44,15 +44,48 @@ const Navbar = () => {
                         <span className="text-green-600">go</span>cart<span className="text-green-600 text-5xl">.</span>
                     </Link>
 
+                    {/* Mobile Navigation Icons */}
+                    <div className="flex sm:hidden items-center gap-3.5 text-slate-600">
+                        <Link href="/orders" className="p-1 hover:text-green-600 transition" title="My Orders">
+                            <Package size={20} />
+                        </Link>
+                        <Link href="/cart" className="relative p-1 hover:text-green-600 transition" title="Cart">
+                            <ShoppingCart size={20} />
+                            {cartCount > 0 && (
+                                <span className="absolute -top-1 -right-1 text-[9px] text-white bg-green-600 size-4 rounded-full flex items-center justify-center font-bold">
+                                    {cartCount}
+                                </span>
+                            )}
+                        </Link>
+                        {isAuthenticated ? (
+                            <Link href="/profile" className="p-1 hover:text-green-600 transition" title="My Profile">
+                                <UserIcon size={20} />
+                            </Link>
+                        ) : (
+                            <button
+                                type="button"
+                                onClick={() => promptLoginModal('Sign in to your account')}
+                                className="px-3.5 py-1 bg-green-600 hover:bg-green-700 text-white rounded-full text-xs font-semibold"
+                            >
+                                Login
+                            </button>
+                        )}
+                    </div>
+
                     <div className="hidden sm:flex items-center gap-4 lg:gap-6 text-slate-600">
-                        <Link href="/">Home</Link>
-                        <Link href="/shop">Shop</Link>
-                        <Link href="/cart" className="relative flex items-center gap-2 text-slate-600">
+                        <Link href="/" className="hover:text-green-600 transition">Home</Link>
+                        <Link href="/shop" className="hover:text-green-600 transition">Shop</Link>
+                        <Link href="/orders" className="flex items-center gap-1.5 hover:text-green-600 transition">
+                            <Package size={17} /> Orders
+                        </Link>
+                        <Link href="/cart" className="relative flex items-center gap-1.5 hover:text-green-600 transition">
                             <ShoppingCart size={18} />
                             Cart
-                            <button className="absolute -top-1 left-3 text-[8px] text-white bg-slate-600 size-3.5 rounded-full">
-                                {cartCount}
-                            </button>
+                            {cartCount > 0 && (
+                                <span className="absolute -top-1.5 -right-2 text-[9px] text-white bg-green-600 size-4 rounded-full flex items-center justify-center font-bold">
+                                    {cartCount}
+                                </span>
+                            )}
                         </Link>
 
                         {isAuthenticated && user?.role === 'MERCHANT' && (

@@ -382,8 +382,24 @@ const OrderSummary = ({ totalPrice, items = [] }) => {
         }
     };
 
+    const estimatedTax = React.useMemo(() => {
+        return (items || []).reduce((sum, item) => {
+            const price = typeof item.price === 'number' ? item.price : parseFloat(item.price) || 0;
+            const qty = item.quantity || 1;
+            const taxRate = typeof item.tax === 'number' ? item.tax : parseFloat(item.tax) || 0;
+            const itemSub = price * qty;
+            let t = 0;
+            if (taxRate > 1.0) {
+                t = itemSub * (taxRate / 100.0);
+            } else if (taxRate > 0) {
+                t = itemSub * taxRate;
+            }
+            return sum + t;
+        }, 0);
+    }, [items]);
+
     const couponDiscount = coupon ? (coupon.discount / 100 * totalPrice) : 0;
-    const finalTotal = Math.max(0, totalPrice - couponDiscount + (shippingFee || 0));
+    const finalTotal = Math.max(0, Math.round((totalPrice + estimatedTax - couponDiscount + (shippingFee || 0)) * 100) / 100);
 
     return (
         <div className='w-full max-w-lg lg:max-w-[380px] bg-white border border-slate-200/80 shadow-sm text-slate-600 text-sm rounded-2xl p-6'>
@@ -556,6 +572,12 @@ const OrderSummary = ({ totalPrice, items = [] }) => {
                     <span>Subtotal:</span>
                     <span className='font-semibold text-slate-700'>{formatPrice(totalPrice)}</span>
                 </div>
+                {estimatedTax > 0 && (
+                    <div className='flex justify-between text-slate-500'>
+                        <span>Estimated Taxes & Fees (GST/VAT):</span>
+                        <span className='font-semibold text-slate-700'>{formatPrice(estimatedTax)}</span>
+                    </div>
+                )}
                 <div className='flex justify-between text-slate-500'>
                     <span>Shipping Fee:</span>
                     <span className={`font-medium ${shippingFee === 0 ? 'text-green-600' : 'text-slate-700'}`}>

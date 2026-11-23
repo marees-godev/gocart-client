@@ -16,9 +16,9 @@ import { getFacebookRedirectUri, getFacebookOAuthURL } from '@/lib/facebookAuth'
 import { X, ShieldCheck, CheckCircle2, Loader2, ArrowRight } from 'lucide-react'
 
 const STEPS = [
-    'Connecting to Facebook',
-    'Verifying credentials',
-    'Setting up your session',
+    'Verifying Facebook account',
+    'Synchronizing cart & preferences',
+    'Preparing your marketplace session',
 ]
 
 export default function FacebookOAuthCallback() {
@@ -349,10 +349,10 @@ export default function FacebookOAuthCallback() {
                         {/* Title */}
                         <div>
                             <h3 className="font-semibold text-slate-800 text-base">
-                                {done ? 'All done!' : 'Signing in with Facebook'}
+                                {done ? 'Welcome to GoCart' : 'Securing Your Session'}
                             </h3>
                             <p className="text-xs text-slate-400 mt-0.5">
-                                {done ? 'Redirecting you now...' : STEPS[step] || 'Please wait...'}
+                                {done ? 'Redirecting to your shopping experience...' : STEPS[step] || 'Please wait a moment...'}
                             </p>
                         </div>
 

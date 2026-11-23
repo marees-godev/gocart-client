@@ -5,6 +5,7 @@ import { useParams } from "next/navigation"
 import { useSelector } from "react-redux"
 import Link from "next/link"
 import { Loader2, ArrowLeft, AlertCircle } from "lucide-react"
+import Loading from "@/components/Loading"
 import ProductDescription from "@/components/ProductDescription"
 import ProductDetails from "@/components/ProductDetails"
 import { graphqlRequest } from "@/lib/apiClient"
@@ -61,10 +62,11 @@ export default function Product() {
 
     if (loading && !product) {
         return (
-            <div className="min-h-[60vh] flex flex-col items-center justify-center gap-3 text-slate-500">
-                <Loader2 size={36} className="animate-spin text-green-600" />
-                <p className="text-sm font-medium">Loading product details from server...</p>
-            </div>
+            <Loading 
+                variant="product" 
+                title="Loading Product Details" 
+                subtitle="Retrieving specifications, merchant info and verified buyer reviews..." 
+            />
         )
     }
 

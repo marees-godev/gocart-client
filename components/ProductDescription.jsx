@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useState, useEffect, useRef } from "react"
-import { ArrowRight, StarIcon, CheckCircle2, ShieldCheck, Loader2 } from "lucide-react"
+import { ArrowRight, StarIcon, CheckCircle2, ShieldCheck, Loader2, Sparkles } from "lucide-react"
 import Image from "next/image"
 import Link from "next/link"
 import { assets } from "@/assets/assets"
@@ -185,11 +185,17 @@ const ProductDescription = ({ product }) => {
                             </div>
                         </>
                     ) : (
-                        <div className="p-8 text-center bg-slate-50 rounded-2xl border border-slate-100">
-                            <p className="text-slate-500 font-medium mb-1">No customer reviews yet</p>
-                            <p className="text-xs text-slate-400 max-w-sm mx-auto">
-                                Verified buyers can leave a rating after placing an order and receiving delivery.
+                        <div className="p-8 sm:p-10 text-center bg-gradient-to-b from-emerald-50/50 via-white to-slate-50/60 rounded-2xl border border-emerald-100 shadow-2xs">
+                            <div className="inline-flex items-center justify-center size-12 rounded-full bg-emerald-100/80 text-emerald-700 mb-3">
+                                <Sparkles size={22} />
+                            </div>
+                            <h4 className="text-base font-semibold text-slate-800 mb-1">Be the First Verified Buyer to Review!</h4>
+                            <p className="text-sm text-slate-600 max-w-md mx-auto mb-4">
+                                Experience guaranteed quality direct from verified merchants. Complete your purchase today and share your verified experience to help the community!
                             </p>
+                            <div className="inline-flex items-center gap-2 text-xs font-semibold text-emerald-800 bg-white px-3.5 py-1.5 rounded-full border border-emerald-200/80 shadow-2xs">
+                                <ShieldCheck size={14} className="text-emerald-600" /> 100% Buyer Protection & Guaranteed Authenticity
+                            </div>
                         </div>
                     )}
                 </div>
@@ -198,27 +204,22 @@ const ProductDescription = ({ product }) => {
             {/* Store Information */}
             <div className="flex items-center gap-3.5 mt-12 p-4 rounded-2xl bg-white border border-slate-200/80 max-w-md shadow-xs">
                 <div className="size-12 rounded-xl overflow-hidden ring-1 ring-slate-200 shrink-0 relative bg-slate-100">
+                    {!storeLogoLoaded && (
+                        <div className="absolute inset-0 bg-slate-200 overflow-hidden pointer-events-none z-0">
+                            <div className="absolute inset-0 -translate-x-full animate-[shimmer_1.4s_infinite] bg-gradient-to-r from-transparent via-white/60 to-transparent" />
+                        </div>
+                    )}
                     <Image
-                        ref={(node) => {
-                            logoRef.current = node
-                            if (node && node.complete && node.naturalWidth > 0) {
-                                setStoreLogoLoaded(true)
-                            }
-                        }}
+                        key={typeof storeLogo === 'string' ? storeLogo : 'logo'}
                         src={storeLogo}
                         alt={storeName}
-                        className={`w-full h-full object-cover transition-opacity duration-300 ${storeLogoLoaded ? 'opacity-100 animate-[img-fade_0.4s_ease-out]' : 'opacity-0'}`}
+                        className="relative z-10 w-full h-full object-cover"
                         width={48}
                         height={48}
                         unoptimized
                         onLoad={() => setStoreLogoLoaded(true)}
                         onError={() => setStoreLogoLoaded(true)}
                     />
-                    {!storeLogoLoaded && (
-                        <div className="absolute inset-0 bg-slate-200 overflow-hidden pointer-events-none">
-                            <div className="absolute inset-0 -translate-x-full animate-[shimmer_1.4s_infinite] bg-gradient-to-r from-transparent via-white/60 to-transparent" />
-                        </div>
-                    )}
                 </div>
                 <div className="flex-1 min-w-0">
                     <p className="text-xs text-slate-400 font-medium">Sold by</p>
