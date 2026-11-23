@@ -16,9 +16,9 @@ import { getGoogleRedirectUri, getGoogleOAuthURL } from '@/lib/googleAuth'
 import { X, ShieldCheck, CheckCircle2, Loader2, ArrowRight } from 'lucide-react'
 
 const STEPS = [
-    'Connecting to Google',
-    'Verifying credentials',
-    'Setting up your session',
+    'Verifying Google account',
+    'Synchronizing cart & preferences',
+    'Preparing your marketplace session',
 ]
 
 export default function GoogleOAuthCallback() {
@@ -347,10 +347,10 @@ export default function GoogleOAuthCallback() {
                         {/* Title & subtitle */}
                         <div>
                             <h3 className="font-semibold text-slate-800 text-base">
-                                {done ? 'All done!' : 'Signing in with Google'}
+                                {done ? 'Welcome to GoCart' : 'Securing Your Session'}
                             </h3>
                             <p className="text-xs text-slate-400 mt-0.5">
-                                {done ? 'Redirecting you now...' : STEPS[step] || 'Please wait...'}
+                                {done ? 'Redirecting to your shopping experience...' : STEPS[step] || 'Please wait a moment...'}
                             </p>
                         </div>
 

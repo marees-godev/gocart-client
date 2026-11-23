@@ -15,15 +15,17 @@ import {
 } from 'lucide-react'
 import OrdersAreaChart from '@/components/OrdersAreaChart'
 import { orderDummyData } from '@/assets/assets'
+import { useCurrency } from '@/lib/features/currency/useCurrency'
 
 export default function MerchantAnalytics() {
+    const { formatPrice } = useCurrency()
     const [timeframe, setTimeframe] = useState('month') // 'week' | 'month' | 'year'
 
     // Mock KPI metrics
     const metrics = [
         {
             title: 'Total Gross Revenue',
-            value: '$24,850.00',
+            value: formatPrice(24850),
             change: '+14.2%',
             isPositive: true,
             subtitle: 'vs. previous period'
@@ -37,7 +39,7 @@ export default function MerchantAnalytics() {
         },
         {
             title: 'Average Order Value (AOV)',
-            value: '$86.50',
+            value: formatPrice(86.5),
             change: '+3.1%',
             isPositive: true,
             subtitle: 'per paying customer'
@@ -58,7 +60,7 @@ export default function MerchantAnalytics() {
             name: 'Noise-Canceling Wireless Headphones',
             category: 'Headphones',
             sales: 382,
-            revenue: '$11,460.00',
+            revenue: formatPrice(11460),
             stock: 45
         },
         {
@@ -66,7 +68,7 @@ export default function MerchantAnalytics() {
             name: 'Portable Bluetooth Stereo Speaker',
             category: 'Speakers',
             sales: 245,
-            revenue: '$7,350.00',
+            revenue: formatPrice(7350),
             stock: 18
         },
         {
@@ -74,7 +76,7 @@ export default function MerchantAnalytics() {
             name: 'Ergonomic Wireless Gaming Mouse',
             category: 'Mouse',
             sales: 198,
-            revenue: '$3,960.00',
+            revenue: formatPrice(3960),
             stock: 82
         },
         {
@@ -82,7 +84,7 @@ export default function MerchantAnalytics() {
             name: 'Minimalist Smart Fitness Watch',
             category: 'Watch',
             sales: 112,
-            revenue: '$2,080.00',
+            revenue: formatPrice(2080),
             stock: 12
         }
     ]

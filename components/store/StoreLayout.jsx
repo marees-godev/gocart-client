@@ -158,7 +158,7 @@ const StoreLayout = ({ children }) => {
         fetchStore()
     }, [])
 
-    if (loading) return <Loading />
+    if (loading) return <Loading variant="merchant" title="Connecting to Merchant Portal" subtitle="Verifying store credentials and permissions..." />
 
     // Scenario A: Merchant does not have a store yet
     if (!storeInfo) {

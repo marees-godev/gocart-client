@@ -21,6 +21,7 @@ import { useStore } from "@/components/store/StoreLayout"
 import DraftStoreReviewCard from "@/components/store/DraftStoreReviewCard"
 import { graphqlRequest } from "@/lib/apiClient"
 import { GET_PRODUCTS_QUERY } from "@/lib/graphql/product"
+import { LIST_MY_ORDERS_QUERY } from "@/lib/graphql/order"
 import { useCurrency } from "@/lib/features/currency/useCurrency"
 
 export default function Dashboard() {
@@ -53,6 +54,23 @@ export default function Dashboard() {
             const storeProducts = prodRes?.products?.products || []
             setProducts(storeProducts)
 
+            // 2. Fetch merchant store orders to calculate authentic earnings
+            const ordersRes = await graphqlRequest(LIST_MY_ORDERS_QUERY, {
+                limit: 100,
+                offset: 0
+            }).catch(() => null)
+
+            const rawOrders = ordersRes?.listMyOrders?.orders || []
+            const storeOrders = storeInfo?.id 
+                ? rawOrders.filter(o => !o.storeId || String(o.storeId) === String(storeInfo.id))
+                : rawOrders
+
+            let totalEarnings = 0
+            storeOrders.forEach(o => {
+                const amt = typeof o.totalAmount === 'number' ? o.totalAmount : (parseFloat(o.totalAmount) || 0)
+                totalEarnings += amt
+            })
+
             // Extract any reviews / ratings from product ratings if present
             const collectedRatings = []
             storeProducts.forEach(p => {
@@ -66,8 +84,8 @@ export default function Dashboard() {
             // Calculate metrics
             setDashboardData({
                 totalProducts: storeProducts.length,
-                totalEarnings: 0, // When orders are completed, revenue can be computed
-                totalOrders: 0,
+                totalEarnings,
+                totalOrders: storeOrders.length,
                 ratings: collectedRatings
             })
         } catch (err) {
@@ -81,7 +99,7 @@ export default function Dashboard() {
         fetchRealDashboardData()
     }, [storeInfo?.id])
 
-    if (loading) return <Loading />
+    if (loading) return <Loading variant="merchant" title="Loading Merchant Dashboard" subtitle="Syncing real-time store inventory, revenue analytics & recent orders..." />
 
     const approvalStatus = storeInfo?.approvalStatus || 'DRAFT'
     const isApproved = approvalStatus === 'APPROVED' || approvalStatus === 'approved'

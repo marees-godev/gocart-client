@@ -108,7 +108,7 @@ export default function StoreManageProducts() {
         fetchProducts()
     }, [storeInfo?.id])
 
-    if (loading) return <Loading />
+    if (loading) return <Loading variant="merchant" title="Loading Product Catalog" subtitle="Retrieving store inventory, variant matrix & stock status..." />
 
     return (
         <div className="max-w-5xl text-slate-700 pb-20">

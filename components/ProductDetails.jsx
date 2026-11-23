@@ -1,7 +1,7 @@
 'use client'
 
 import { addToCart, setCart } from "@/lib/features/cart/cartSlice"
-import { StarIcon, TagIcon, EarthIcon, CreditCardIcon, UserIcon } from "lucide-react"
+import { StarIcon, TagIcon, EarthIcon, CreditCardIcon, UserIcon, Sparkles } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { useState, useEffect, useRef } from "react"
 import Image from "next/image"
@@ -12,6 +12,7 @@ import { assets } from "@/assets/assets"
 import { useCurrency } from "@/lib/features/currency/useCurrency"
 import { graphqlRequest } from "@/lib/apiClient"
 import { ADD_TO_CART_MUTATION } from "@/lib/graphql/cart"
+import { GET_PRODUCT_RATINGS_QUERY } from "@/lib/graphql/rating"
 
 const ProductDetails = ({ product }) => {
     const productId = product.id
@@ -29,20 +30,12 @@ const ProductDetails = ({ product }) => {
     const [mainImage, setMainImage] = useState(images[0])
     const [mainLoaded, setMainLoaded] = useState(false)
     const [selectedVariant, setSelectedVariant] = useState(product?.variants?.[0] || null)
-    const mainImgRef = useRef(null)
 
-    // Check if image is already cached/complete, or auto-resolve with safety timeout
+    // Safety fallback: auto-clear loading state if browser already has image in cache
     useEffect(() => {
-        if (mainImgRef.current && mainImgRef.current.complete && mainImgRef.current.naturalWidth > 0) {
-            setMainLoaded(true)
-            return
-        }
-
-        // Safety fallback: prevents infinite shimmer if browser loaded without dispatching onLoad
         const timer = setTimeout(() => {
             setMainLoaded(true)
-        }, 800)
-
+        }, 400)
         return () => clearTimeout(timer)
     }, [mainImage])
 
@@ -90,15 +83,31 @@ const ProductDetails = ({ product }) => {
         }
     }
 
-    const averageRating = typeof product?.avgRating === 'number' && product.avgRating > 0
-        ? product.avgRating
+    const [realRatings, setRealRatings] = useState({ total: 0, averageRating: 0 })
+
+    useEffect(() => {
+        if (!productId) return
+        graphqlRequest(GET_PRODUCT_RATINGS_QUERY, { productId: String(productId), limit: 1, offset: 0 })
+            .then(data => {
+                if (data?.productRatings) {
+                    setRealRatings({
+                        total: data.productRatings.total || 0,
+                        averageRating: data.productRatings.averageRating || 0,
+                    })
+                }
+            })
+            .catch(() => {})
+    }, [productId])
+
+    const averageRating = realRatings.total > 0
+        ? realRatings.averageRating
         : (Array.isArray(product?.rating) && product.rating.length > 0
             ? (product.rating.reduce((acc, item) => acc + (item.rating || 0), 0) / product.rating.length)
-            : 5)
+            : 0)
 
-    const reviewCount = Array.isArray(product?.rating) && product.rating.length > 0
-        ? product.rating.length
-        : (product?.avgRating ? 8 : 0)
+    const reviewCount = realRatings.total > 0
+        ? realRatings.total
+        : (Array.isArray(product?.rating) && product.rating.length > 0 ? product.rating.length : 0)
 
     const activePrice = selectedVariant?.price || product.price || 0
     const activeMrp = selectedVariant?.mrp || (product.mrp && product.mrp > activePrice ? product.mrp : activePrice)
@@ -139,29 +148,25 @@ const ProductDetails = ({ product }) => {
                     {/* Ambient studio backdrop */}
                     <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(255,255,255,1)_0%,rgba(241,245,249,0.6)_100%)] pointer-events-none" />
 
-                    {/* Shimmer shown while main image loads */}
+                    {/* Background shimmer shown while main image loads */}
                     {!mainLoaded && (
-                        <div className="absolute inset-0 rounded-3xl overflow-hidden pointer-events-none z-20">
-                            <div className="w-full h-full bg-slate-200/80 relative overflow-hidden">
-                                <div className="absolute inset-0 -translate-x-full animate-[shimmer_1.4s_infinite] bg-gradient-to-r from-transparent via-white/70 to-transparent" />
+                        <div className="absolute inset-0 rounded-3xl overflow-hidden pointer-events-none z-0">
+                            <div className="w-full h-full bg-slate-100/90 relative overflow-hidden">
+                                <div className="absolute inset-0 -translate-x-full animate-[shimmer_1.4s_infinite] bg-gradient-to-r from-transparent via-white/80 to-transparent" />
                             </div>
                         </div>
                     )}
                     <Image
-                        ref={(node) => {
-                            mainImgRef.current = node
-                            if (node && node.complete && node.naturalWidth > 0) {
-                                setMainLoaded(true)
-                            }
-                        }}
+                        key={typeof mainImage === 'string' ? mainImage : 'main-img'}
                         src={mainImage || assets.product_img1}
                         alt={product.name || "Product"}
                         width={420}
                         height={420}
                         unoptimized
+                        priority
                         onLoad={() => setMainLoaded(true)}
                         onError={() => setMainLoaded(true)}
-                        className={`relative z-10 object-contain max-h-[360px] sm:max-h-[400px] w-auto mix-blend-multiply drop-shadow-xl hover:scale-105 transition-all duration-500 ease-out ${mainLoaded ? 'opacity-100 animate-[img-fade_0.4s_ease-out]' : 'opacity-0'}`}
+                        className="relative z-10 object-contain max-h-[360px] sm:max-h-[400px] w-auto mix-blend-multiply drop-shadow-xl hover:scale-105 transition-transform duration-300 ease-out"
                     />
                 </div>
             </div>
@@ -169,17 +174,28 @@ const ProductDetails = ({ product }) => {
             {/* Info and Actions */}
             <div className="flex-1">
                 <h1 className="text-3xl font-semibold text-slate-800">{product.name}</h1>
-                <div className='flex items-center mt-2'>
-                    {Array(5).fill('').map((_, index) => (
-                        <StarIcon
-                            key={index}
-                            size={14}
-                            className='text-transparent mt-0.5'
-                            fill={averageRating >= index + 1 ? "#00C950" : "#D1D5DB"}
-                        />
-                    ))}
-                    <p className="text-sm ml-3 text-slate-500">{reviewCount} Reviews</p>
-                </div>
+                {averageRating > 0 ? (
+                    <div className='flex items-center mt-2.5 gap-2'>
+                        <div className='flex items-center gap-0.5'>
+                            {Array(5).fill('').map((_, index) => (
+                                <StarIcon
+                                    key={index}
+                                    size={14}
+                                    className='text-transparent mt-0.5'
+                                    fill={averageRating >= index + 1 ? "#00C950" : "#D1D5DB"}
+                                />
+                            ))}
+                        </div>
+                        <span className="text-xs font-semibold text-slate-700">{averageRating.toFixed(1)}</span>
+                        <span className="text-slate-300">•</span>
+                        <p className="text-xs text-slate-500 font-medium">{reviewCount} {reviewCount === 1 ? 'Review' : 'Reviews'}</p>
+                    </div>
+                ) : (
+                    <div className='inline-flex items-center gap-2 mt-2.5 px-3 py-1.5 rounded-full bg-emerald-50 border border-emerald-200/80 text-emerald-800 text-xs font-semibold shadow-2xs'>
+                        <Sparkles size={13} className='text-emerald-600' />
+                        <span>Brand New Arrival • Be the first verified buyer to review!</span>
+                    </div>
+                )}
 
                 {/* Pricing */}
                 <div className="flex items-baseline my-6 gap-3">
@@ -190,9 +206,9 @@ const ProductDetails = ({ product }) => {
                 </div>
 
                 {discount > 0 && (
-                    <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                        <TagIcon size={13} />
-                        <span>Save {discount}% right now</span>
+                    <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold bg-rose-50 text-rose-700 border border-rose-200/80 shadow-2xs">
+                        <TagIcon size={13} className="text-rose-600" />
+                        <span>Save {discount}% ({formatPrice(activeMrp - activePrice)} OFF)</span>
                     </div>
                 )}
 
