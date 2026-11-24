@@ -8,7 +8,7 @@ export default function DeliveryLoginPage() {
         <AuthForm
             role="DELIVERY_PARTNER"
             lockRole={true}
-            defaultRedirect="/orders"
+            defaultRedirect="/delivery"
             portalTitle="GoCart Delivery Partner Hub"
             portalSubtitle="Sign in to accept delivery batches and track your earnings."
         />

@@ -209,7 +209,7 @@ export default function FacebookOAuthCallback() {
                 } else if (finalRole === 'MERCHANT' || finalRole === 'SELLER') {
                     router.push('/store')
                 } else if (finalRole === 'DELIVERY_PARTNER') {
-                    router.push('/orders')
+                    router.push('/delivery')
                 } else {
                     router.push('/')
                 }

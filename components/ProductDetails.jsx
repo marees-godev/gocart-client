@@ -1,7 +1,7 @@
 'use client'
 
 import { addToCart, setCart } from "@/lib/features/cart/cartSlice"
-import { StarIcon, TagIcon, EarthIcon, CreditCardIcon, UserIcon, Sparkles } from "lucide-react"
+import { StarIcon, TagIcon, EarthIcon, CreditCardIcon, UserIcon, Sparkles, MapPin, Truck, CheckCircle2, AlertCircle, Loader2 } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { useState, useEffect, useRef } from "react"
 import Image from "next/image"
@@ -13,6 +13,8 @@ import { useCurrency } from "@/lib/features/currency/useCurrency"
 import { graphqlRequest } from "@/lib/apiClient"
 import { ADD_TO_CART_MUTATION } from "@/lib/graphql/cart"
 import { GET_PRODUCT_RATINGS_QUERY } from "@/lib/graphql/rating"
+import { GET_STOCK_QUERY } from "@/lib/graphql/inventory"
+import { GET_LOCATION_BY_PINCODE_QUERY } from "@/lib/graphql/address"
 
 const ProductDetails = ({ product }) => {
     const productId = product.id
@@ -84,6 +86,8 @@ const ProductDetails = ({ product }) => {
     }
 
     const [realRatings, setRealRatings] = useState({ total: 0, averageRating: 0 })
+    const [liveStock, setLiveStock] = useState(null)
+    const [stockLoading, setStockLoading] = useState(false)
 
     useEffect(() => {
         if (!productId) return
@@ -97,7 +101,63 @@ const ProductDetails = ({ product }) => {
                 }
             })
             .catch(() => {})
+
+        // Query authoritative real-time stock from inventory-service
+        setStockLoading(true)
+        graphqlRequest(GET_STOCK_QUERY, { productId: String(productId) })
+            .then(data => {
+                if (data?.stock) {
+                    setLiveStock(data.stock)
+                }
+            })
+            .catch(() => {
+                // If inventory-service has no record, fallback to product data
+            })
+            .finally(() => {
+                setStockLoading(false)
+            })
     }, [productId])
+
+    // Determine stock availability
+    const availableStock = liveStock?.availableQuantity ?? selectedVariant?.stock ?? product?.stock ?? null
+    const isOutOfStock = liveStock !== null
+        ? liveStock.availableQuantity <= 0
+        : (product.status === 'OUT_OF_STOCK' || (availableStock !== null && availableStock <= 0))
+    const isLowStock = availableStock !== null && availableStock > 0 && availableStock <= 5
+
+    // Pincode lookup state for delivery estimation
+    const [pincodeInput, setPincodeInput] = useState('')
+    const [checkingPincode, setCheckingPincode] = useState(false)
+    const [pincodeLocation, setPincodeLocation] = useState(null)
+    const [pincodeError, setPincodeError] = useState(null)
+
+    const handleCheckPincode = async (e) => {
+        e?.preventDefault()
+        const cleanPin = pincodeInput.trim()
+        if (!cleanPin || cleanPin.length < 5) {
+            setPincodeError('Please enter a valid 6-digit postal PIN code')
+            return
+        }
+
+        setCheckingPincode(true)
+        setPincodeError(null)
+        try {
+            const data = await graphqlRequest(GET_LOCATION_BY_PINCODE_QUERY, {
+                pincode: cleanPin,
+                country: 'IN'
+            })
+
+            if (data?.locationByPincode) {
+                setPincodeLocation(data.locationByPincode)
+            } else {
+                setPincodeError('Pincode not found or delivery unavailable')
+            }
+        } catch (err) {
+            setPincodeError(err.message || 'Delivery check unavailable for this PIN')
+        } finally {
+            setCheckingPincode(false)
+        }
+    }
 
     const averageRating = realRatings.total > 0
         ? realRatings.averageRating
@@ -212,6 +272,26 @@ const ProductDetails = ({ product }) => {
                     </div>
                 )}
 
+                {/* Authoritative Live Stock Badge */}
+                <div className="mt-3">
+                    {isOutOfStock ? (
+                        <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-rose-100 text-rose-800 border border-rose-200">
+                            <span className="size-1.5 rounded-full bg-rose-600"></span>
+                            Out of Stock
+                        </div>
+                    ) : isLowStock ? (
+                        <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-amber-100 text-amber-800 border border-amber-200">
+                            <span className="size-1.5 rounded-full bg-amber-600 animate-pulse"></span>
+                            Only {availableStock} left in stock - order soon!
+                        </div>
+                    ) : availableStock !== null ? (
+                        <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-emerald-50 text-emerald-800 border border-emerald-200">
+                            <span className="size-1.5 rounded-full bg-emerald-600"></span>
+                            In Stock ({availableStock} available)
+                        </div>
+                    ) : null}
+                </div>
+
                 {/* Variants Selector (if backend provides variants) */}
                 {Array.isArray(product.variants) && product.variants.length > 1 && (
                     <div className="mt-6">
@@ -244,11 +324,70 @@ const ProductDetails = ({ product }) => {
                         </div>
                     )}
                     <button
-                        onClick={() => !cart[productId] ? addToCartHandler() : router.push('/cart')}
-                        className="bg-slate-900 text-white px-10 py-3 text-sm font-semibold rounded-xl hover:bg-slate-800 active:scale-95 transition cursor-pointer shadow-sm"
+                        type="button"
+                        disabled={isOutOfStock}
+                        onClick={() => {
+                            if (isOutOfStock) return
+                            !cart[productId] ? addToCartHandler() : router.push('/cart')
+                        }}
+                        className={`px-10 py-3 text-sm font-semibold rounded-xl transition shadow-sm ${
+                            isOutOfStock
+                                ? 'bg-slate-300 text-slate-500 cursor-not-allowed'
+                                : 'bg-slate-900 text-white hover:bg-slate-800 active:scale-95 cursor-pointer'
+                        }`}
                     >
-                        {!cart[productId] ? 'Add to Cart' : 'View Cart'}
+                        {isOutOfStock ? 'Out of Stock' : !cart[productId] ? 'Add to Cart' : 'View Cart'}
                     </button>
+                </div>
+
+                {/* Delivery & Pincode Serviceability Check */}
+                <div className="mt-6 p-4 rounded-2xl bg-slate-50 border border-slate-200/80 space-y-3">
+                    <div className="flex items-center gap-2 text-xs font-bold text-slate-700">
+                        <Truck size={16} className="text-emerald-600" />
+                        <span>Delivery Availability & Pincode Check</span>
+                    </div>
+
+                    <form onSubmit={handleCheckPincode} className="flex gap-2">
+                        <div className="relative flex-1">
+                            <MapPin size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                            <input
+                                type="text"
+                                maxLength={6}
+                                value={pincodeInput}
+                                onChange={(e) => {
+                                    setPincodeInput(e.target.value)
+                                    if (pincodeError) setPincodeError(null)
+                                }}
+                                placeholder="Enter 6-digit PIN code (e.g. 400001)"
+                                className="w-full pl-9 pr-3 py-2 text-xs rounded-xl border border-slate-200 bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 outline-none transition"
+                            />
+                        </div>
+                        <button
+                            type="submit"
+                            disabled={checkingPincode || !pincodeInput.trim()}
+                            className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold rounded-xl transition active:scale-98 disabled:opacity-50 cursor-pointer shadow-2xs"
+                        >
+                            {checkingPincode ? <Loader2 size={13} className="animate-spin" /> : 'Check'}
+                        </button>
+                    </form>
+
+                    {pincodeLocation && (
+                        <div className="p-2.5 rounded-xl bg-emerald-50 border border-emerald-200 text-xs text-emerald-800 space-y-1 animate-in fade-in">
+                            <p className="font-semibold flex items-center gap-1.5">
+                                <CheckCircle2 size={14} className="text-emerald-600" />
+                                Available for Express Delivery to {pincodeLocation.district}, {pincodeLocation.state}
+                            </p>
+                            <p className="text-[11px] text-emerald-700">
+                                Estimated delivery within 2 - 3 business days • Free Shipping on orders over ₹500
+                            </p>
+                        </div>
+                    )}
+
+                    {pincodeError && (
+                        <p className="text-xs text-rose-600 flex items-center gap-1 font-medium animate-in fade-in">
+                            <AlertCircle size={13} /> {pincodeError}
+                        </p>
+                    )}
                 </div>
 
                 <hr className="border-gray-200 my-8" />

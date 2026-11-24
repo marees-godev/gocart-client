@@ -706,11 +706,12 @@ export default function StoreOrders() {
                             const computedSubtotal = modalItems.reduce((acc, it) => acc + ((it.unitPrice ?? it.price ?? 0) * (it.quantity || 1)), 0)
                             const orderSubtotal = (typeof selectedOrder.subtotal === 'number' && selectedOrder.subtotal > 0) ? selectedOrder.subtotal : computedSubtotal
                             const shippingFee = typeof selectedOrder.shippingFee === 'number' ? selectedOrder.shippingFee : (parseFloat(selectedOrder.shippingFee) || 0)
+                            const platformFee = typeof selectedOrder.platformFee === 'number' ? selectedOrder.platformFee : (selectedOrder.platformFee !== undefined && selectedOrder.platformFee !== null ? (parseFloat(selectedOrder.platformFee) || 0) : 7.00)
                             const discountAmount = typeof selectedOrder.discountAmount === 'number' ? selectedOrder.discountAmount : (parseFloat(selectedOrder.discountAmount) || 0)
-                            const totalAmount = typeof selectedOrder.totalAmount === 'number' ? selectedOrder.totalAmount : (parseFloat(selectedOrder.totalAmount) || selectedOrder.total || (orderSubtotal + shippingFee - discountAmount))
+                            const totalAmount = typeof selectedOrder.totalAmount === 'number' ? selectedOrder.totalAmount : (parseFloat(selectedOrder.totalAmount) || selectedOrder.total || (orderSubtotal + shippingFee + platformFee - discountAmount))
                             const taxAmount = (typeof selectedOrder.taxAmount === 'number' && selectedOrder.taxAmount > 0)
                                 ? selectedOrder.taxAmount
-                                : Math.max(0, Math.round((totalAmount - orderSubtotal - shippingFee + discountAmount) * 100) / 100)
+                                : Math.max(0, Math.round((totalAmount - orderSubtotal - shippingFee - platformFee + discountAmount) * 100) / 100)
 
                             return (
                                 <div className="mb-5 space-y-2">
@@ -776,6 +777,12 @@ export default function StoreOrders() {
                                                     <tr>
                                                         <td colSpan={3} className="px-3 py-1.5 text-right text-slate-500">Taxes & Fees (GST/VAT):</td>
                                                         <td className="px-3 py-1.5 text-right font-medium">{formatPrice(taxAmount)}</td>
+                                                    </tr>
+                                                )}
+                                                {platformFee > 0 && (
+                                                    <tr>
+                                                        <td colSpan={3} className="px-3 py-1.5 text-right text-slate-500">Platform Fee:</td>
+                                                        <td className="px-3 py-1.5 text-right font-medium">{formatPrice(platformFee)}</td>
                                                     </tr>
                                                 )}
                                                 {shippingFee > 0 && (

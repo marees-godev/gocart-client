@@ -76,6 +76,7 @@ const OrderSummary = ({ totalPrice, items = [] }) => {
     const [paymentMethod, setPaymentMethod] = useState('RAZORPAY'); // 'RAZORPAY' | 'COD'
     const [selectedDeliveryPartner, setSelectedDeliveryPartner] = useState(DELIVERY_PARTNERS[0].id);
     const [shippingFee, setShippingFee] = useState(0);
+    const [platformFee, setPlatformFee] = useState(7.00);
     const [isCalculatingShipping, setIsCalculatingShipping] = useState(false);
     const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -149,8 +150,13 @@ const OrderSummary = ({ totalPrice, items = [] }) => {
                     }
                 });
 
-                if (!isCancelled && res?.calculateShippingFee?.shippingFee !== undefined) {
-                    setShippingFee(res.calculateShippingFee.shippingFee);
+                if (!isCancelled && res?.calculateShippingFee) {
+                    if (res.calculateShippingFee.shippingFee !== undefined) {
+                        setShippingFee(res.calculateShippingFee.shippingFee);
+                    }
+                    if (res.calculateShippingFee.platformFee !== undefined && res.calculateShippingFee.platformFee !== null) {
+                        setPlatformFee(Number(res.calculateShippingFee.platformFee));
+                    }
                 }
             } catch (err) {
                 // Graceful fallback to partner default if delivery service unavailable
@@ -247,6 +253,7 @@ const OrderSummary = ({ totalPrice, items = [] }) => {
                 idempotencyKey: orderIdempotencyKey,
                 currency: currencyCode,
                 discountAmount: Number(discountAmount.toFixed(2)),
+                platformFee: Number(platformFee || 7.00),
                 ...(shippingAddressId ? { shippingAddressId } : {}),
                 ...(cartId ? { cartId: String(cartId) } : {}),
             };
@@ -399,7 +406,7 @@ const OrderSummary = ({ totalPrice, items = [] }) => {
     }, [items]);
 
     const couponDiscount = coupon ? (coupon.discount / 100 * totalPrice) : 0;
-    const finalTotal = Math.max(0, Math.round((totalPrice + estimatedTax - couponDiscount + (shippingFee || 0)) * 100) / 100);
+    const finalTotal = Math.max(0, Math.round((totalPrice + estimatedTax + (platformFee || 0) - couponDiscount + (shippingFee || 0)) * 100) / 100);
 
     return (
         <div className='w-full max-w-lg lg:max-w-[380px] bg-white border border-slate-200/80 shadow-sm text-slate-600 text-sm rounded-2xl p-6'>
@@ -578,6 +585,13 @@ const OrderSummary = ({ totalPrice, items = [] }) => {
                         <span className='font-semibold text-slate-700'>{formatPrice(estimatedTax)}</span>
                     </div>
                 )}
+                <div className='flex justify-between text-slate-500'>
+                    <span className='flex items-center gap-1.5'>
+                        <span>Platform Fee:</span>
+                        <span className='text-[10px] bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded-full font-medium'>Standard</span>
+                    </span>
+                    <span className='font-semibold text-slate-700'>{formatPrice(platformFee || 7.00)}</span>
+                </div>
                 <div className='flex justify-between text-slate-500'>
                     <span>Shipping Fee:</span>
                     <span className={`font-medium ${shippingFee === 0 ? 'text-green-600' : 'text-slate-700'}`}>

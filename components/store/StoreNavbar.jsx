@@ -29,7 +29,7 @@ const StoreNavbar = ({ storeInfo }) => {
 
     return (
         <div className="flex items-center justify-between px-6 sm:px-12 py-3.5 border-b border-slate-200 bg-white transition-all">
-            <div className="flex items-center gap-4">
+            <div className="flex items-center gap-3">
                 <Link href="/" className="relative text-3xl sm:text-4xl font-semibold text-slate-800">
                     <span className="text-green-600">go</span>cart<span className="text-green-600 text-5xl leading-0">.</span>
                     <span className="ml-2 text-xs font-semibold px-2.5 py-0.5 rounded-full text-white bg-green-600 align-middle">

@@ -24,11 +24,14 @@ import {
     X,
     Loader2,
     Check,
-    ImagePlus
+    ImagePlus,
+    Scale,
+    ArrowLeftRight
 } from "lucide-react"
 
 import { graphqlRequest } from "@/lib/apiClient"
 import { CREATE_PRODUCT_MUTATION, GET_CATEGORIES_QUERY } from "@/lib/graphql/product"
+import { CREATE_INVENTORY_MUTATION } from "@/lib/graphql/inventory"
 import {
     GET_USER_STORE_QUERY,
     GET_MERCHANT_STORES_QUERY,
@@ -71,6 +74,9 @@ export default function StoreAddProduct() {
         price: '',
         mrp: '',
         tax: '0.00',
+        weight: '0.50',
+        isExchangeEligible: false,
+        maxExchangeDiscount: '0.00',
         status: 'DRAFT',
         imageUrl: '',
         images: [],
@@ -364,6 +370,9 @@ export default function StoreAddProduct() {
             price: '24.99',
             mrp: '29.99',
             tax: '1.50',
+            weight: '0.45',
+            isExchangeEligible: true,
+            maxExchangeDiscount: '5.00',
             status: 'DRAFT',
             imageUrl: 'https://images.unsplash.com/photo-1521572267360-ee0c2909d518?w=800&auto=format&fit=crop&q=80',
             images: [
@@ -473,6 +482,10 @@ export default function StoreAddProduct() {
             toast.error('Valid MRP is required.')
             return
         }
+        if (!formData.weight || isNaN(parseFloat(formData.weight)) || parseFloat(formData.weight) <= 0) {
+            toast.error('Valid Product Weight in kg is required for shipping calculations.')
+            return
+        }
 
         // 2. Build clean images array
         const validImages = formData.images.map(img => (img || '').trim()).filter(Boolean)
@@ -524,8 +537,11 @@ export default function StoreAddProduct() {
             price: parseFloat(formData.price),
             mrp: parseFloat(formData.mrp),
             tax: formData.tax ? parseFloat(formData.tax) : 0,
+            weight: parseFloat(formData.weight) || 0.5,
             status: formData.status,
             imageUrl: primaryImageUrl || null,
+            isExchangeEligible: Boolean(formData.isExchangeEligible),
+            maxExchangeDiscount: formData.isExchangeEligible ? (parseFloat(formData.maxExchangeDiscount) || 0) : 0,
             images: validImages.length > 0 ? validImages : null,
             variants: formattedVariants.length > 0 ? formattedVariants : null,
         }
@@ -537,6 +553,34 @@ export default function StoreAddProduct() {
             if (response?.createProduct?.id) {
                 const createdProduct = response.createProduct
                 toast.success(`Product "${createdProduct.name}" created successfully!`)
+
+                // Asynchronously synchronize initial stock with inventory-service
+                try {
+                    if (Array.isArray(createdProduct.variants) && createdProduct.variants.length > 0) {
+                        for (const v of createdProduct.variants) {
+                            graphqlRequest(CREATE_INVENTORY_MUTATION, {
+                                input: {
+                                    productId: createdProduct.id,
+                                    variantId: v.id,
+                                    sku: v.sku || createdProduct.sku,
+                                    initialQuantity: typeof v.stock === 'number' ? v.stock : 10,
+                                    lowStockThreshold: 5,
+                                }
+                            }).catch(() => {})
+                        }
+                    } else {
+                        graphqlRequest(CREATE_INVENTORY_MUTATION, {
+                            input: {
+                                productId: createdProduct.id,
+                                sku: createdProduct.sku,
+                                initialQuantity: 10,
+                                lowStockThreshold: 5,
+                            }
+                        }).catch(() => {})
+                    }
+                } catch (invErr) {
+                    console.warn("Inventory initialization notice:", invErr)
+                }
 
                 // Redirect to Manage Products or reset
                 setTimeout(() => {
@@ -777,14 +821,14 @@ export default function StoreAddProduct() {
                     </div>
                 </div>
 
-                {/* 2. Pricing & Tax Section */}
+                {/* 2. Pricing, Logistics & Exchange Section */}
                 <div className="bg-white p-6 sm:p-8 rounded-2xl border border-slate-200 shadow-sm space-y-6">
                     <div className="flex items-center gap-2 pb-4 border-b border-slate-100">
                         <DollarSign className="text-emerald-600" size={20} />
-                        <h2 className="text-lg font-semibold text-slate-900">Pricing & Tax</h2>
+                        <h2 className="text-lg font-semibold text-slate-900">Pricing, Weight & Exchange Policy</h2>
                     </div>
 
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
                         {/* Offer Price */}
                         <div>
                             <label className="block text-xs font-semibold uppercase tracking-wider text-slate-600 mb-2">
@@ -846,6 +890,71 @@ export default function StoreAddProduct() {
                             </div>
                             <p className="text-xs text-slate-400 mt-1">Tax included or surcharge</p>
                         </div>
+
+                        {/* Weight (kg) */}
+                        <div>
+                            <label className="block text-xs font-semibold uppercase tracking-wider text-slate-600 mb-2">
+                                Weight (kg) <span className="text-rose-500">*</span>
+                            </label>
+                            <div className="relative">
+                                <span className="absolute left-3.5 top-3 text-slate-400 font-semibold">kg</span>
+                                <input
+                                    type="number"
+                                    step="0.01"
+                                    min="0.01"
+                                    required
+                                    value={formData.weight}
+                                    onChange={e => setFormData({ ...formData, weight: e.target.value })}
+                                    placeholder="0.50"
+                                    className="w-full pl-10 pr-4 py-3 rounded-xl border border-slate-200 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100 outline-none transition text-sm text-slate-900 font-semibold"
+                                />
+                            </div>
+                            <p className="text-xs text-slate-400 mt-1">Required for carrier shipping rates</p>
+                        </div>
+                    </div>
+
+                    {/* Return & Exchange Policy */}
+                    <div className="pt-4 border-t border-slate-100 grid grid-cols-1 sm:grid-cols-2 gap-6 items-center">
+                        <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between gap-4">
+                            <div>
+                                <p className="text-sm font-semibold text-slate-900 flex items-center gap-1.5">
+                                    <ArrowLeftRight size={16} className="text-blue-600" /> Return & Exchange Eligible
+                                </p>
+                                <p className="text-xs text-slate-500 mt-0.5">
+                                    Allow buyers to request door-step return or replacement within SLA
+                                </p>
+                            </div>
+                            <label className="relative inline-flex items-center cursor-pointer">
+                                <input
+                                    type="checkbox"
+                                    checked={formData.isExchangeEligible}
+                                    onChange={e => setFormData({ ...formData, isExchangeEligible: e.target.checked })}
+                                    className="sr-only peer"
+                                />
+                                <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                            </label>
+                        </div>
+
+                        {formData.isExchangeEligible && (
+                            <div className="animate-in fade-in duration-150">
+                                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-600 mb-2">
+                                    Max Exchange Discount ($)
+                                </label>
+                                <div className="relative">
+                                    <span className="absolute left-3.5 top-3 text-slate-400 font-semibold">$</span>
+                                    <input
+                                        type="number"
+                                        step="0.01"
+                                        min="0"
+                                        value={formData.maxExchangeDiscount}
+                                        onChange={e => setFormData({ ...formData, maxExchangeDiscount: e.target.value })}
+                                        placeholder="5.00"
+                                        className="w-full pl-8 pr-4 py-3 rounded-xl border border-slate-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-100 outline-none transition text-sm text-slate-900"
+                                    />
+                                </div>
+                                <p className="text-xs text-slate-400 mt-1">Maximum compensation allowed on trade-in/exchange</p>
+                            </div>
+                        )}
                     </div>
                 </div>
 

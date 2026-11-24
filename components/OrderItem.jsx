@@ -515,11 +515,12 @@ const OrderItem = ({ order, onRatingSubmitted }) => {
                                 const computedSubtotal = items.reduce((acc, it) => acc + it.lineTotal, 0)
                                 const orderSubtotal = (typeof order.subtotal === 'number' && order.subtotal > 0) ? order.subtotal : computedSubtotal
                                 const shippingFee = typeof order.shippingFee === 'number' ? order.shippingFee : (parseFloat(order.shippingFee) || 0)
+                                const platformFee = typeof order.platformFee === 'number' ? order.platformFee : (order.platformFee !== undefined && order.platformFee !== null ? (parseFloat(order.platformFee) || 0) : 7.00)
                                 const discountAmount = typeof order.discountAmount === 'number' ? order.discountAmount : (parseFloat(order.discountAmount) || 0)
-                                const finalOrderTotal = typeof order.totalAmount === 'number' ? order.totalAmount : (parseFloat(order.totalAmount) || order.total || (orderSubtotal + shippingFee - discountAmount))
+                                const finalOrderTotal = typeof order.totalAmount === 'number' ? order.totalAmount : (parseFloat(order.totalAmount) || order.total || (orderSubtotal + shippingFee + platformFee - discountAmount))
                                 const taxAmount = (typeof order.taxAmount === 'number' && order.taxAmount > 0)
                                     ? order.taxAmount
-                                    : Math.max(0, Math.round((finalOrderTotal - orderSubtotal - shippingFee + discountAmount) * 100) / 100)
+                                    : Math.max(0, Math.round((finalOrderTotal - orderSubtotal - shippingFee - platformFee + discountAmount) * 100) / 100)
 
                                 return (
                                     <div className="border border-slate-200 rounded-xl overflow-hidden mt-4">
@@ -551,6 +552,12 @@ const OrderItem = ({ order, onRatingSubmitted }) => {
                                                     <tr>
                                                         <td colSpan={3} className="px-3 py-1.5 text-right text-slate-500">Taxes & Fees (GST/VAT):</td>
                                                         <td className="px-3 py-1.5 text-right font-medium">{formatPrice(taxAmount)}</td>
+                                                    </tr>
+                                                )}
+                                                {platformFee > 0 && (
+                                                    <tr>
+                                                        <td colSpan={3} className="px-3 py-1.5 text-right text-slate-500">Platform Fee:</td>
+                                                        <td className="px-3 py-1.5 text-right font-medium">{formatPrice(platformFee)}</td>
                                                     </tr>
                                                 )}
                                                 {shippingFee > 0 && (

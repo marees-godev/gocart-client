@@ -13,12 +13,18 @@ import {
     Globe,
     Check,
     Navigation,
-    Loader2
+    Loader2,
+    Sparkles,
+    Search
 } from 'lucide-react'
 import { useDispatch, useSelector } from 'react-redux'
 import { addAddress, updateAddress, normalizeAddress } from '@/lib/features/address/addressSlice'
 import { graphqlRequest } from '@/lib/apiClient'
-import { CREATE_USER_ADDRESS_MUTATION, UPDATE_USER_ADDRESS_MUTATION } from '@/lib/graphql/address'
+import {
+    CREATE_USER_ADDRESS_MUTATION,
+    UPDATE_USER_ADDRESS_MUTATION,
+    GET_LOCATION_BY_PINCODE_QUERY
+} from '@/lib/graphql/address'
 import toast from 'react-hot-toast'
 
 const ADDRESS_TYPES = [
@@ -75,31 +81,52 @@ const AddressModal = ({ setShowAddressModal, editAddress = null, userId = null, 
     })
 
     const [isSubmitting, setIsSubmitting] = useState(false)
+    const [isLookingUpPincode, setIsLookingUpPincode] = useState(false)
+    const [pincodeDetails, setPincodeDetails] = useState(null)
 
-    useEffect(() => {
-        if (editAddress) {
-            setFormData({
-                title: editAddress.label || editAddress.title || 'Home',
-                name: editAddress.fullName || editAddress.name || '',
-                phone: editAddress.phoneNumber || editAddress.phone || '',
-                email: editAddress.emailAddress || editAddress.email || '',
-                street: editAddress.addressLine || editAddress.street || '',
-                city: editAddress.city || '',
-                state: editAddress.state || '',
-                zip: editAddress.postalCode || editAddress.zip || '',
-                country: editAddress.country || 'United States',
-                isDefault: Boolean(editAddress.isDefault),
+    // Lookup location details from backend pincode API
+    const handlePincodeLookup = async (pinToLookup = formData.zip) => {
+        const cleanPin = String(pinToLookup || '').trim()
+        if (!cleanPin || cleanPin.length < 5) {
+            toast.error('Please enter a valid postal / PIN code')
+            return
+        }
+
+        setIsLookingUpPincode(true)
+        try {
+            const countryCode = formData.country && formData.country.toLowerCase().includes('india') ? 'IN' : 'IN'
+            const data = await graphqlRequest(GET_LOCATION_BY_PINCODE_QUERY, {
+                pincode: cleanPin,
+                country: countryCode
             })
-        }
-    }, [editAddress])
 
-    // Prevent background scrolling when modal is open
-    useEffect(() => {
-        document.body.style.overflow = 'hidden'
-        return () => {
-            document.body.style.overflow = 'unset'
+            if (data?.locationByPincode) {
+                const loc = data.locationByPincode
+                setPincodeDetails(loc)
+
+                // Auto-fill city, state, country
+                const autoCity = loc.district || loc.postOffices?.[0]?.district || loc.postOffices?.[0]?.name || ''
+                const autoState = loc.state || ''
+                const autoCountry = loc.country || 'India'
+
+                setFormData(prev => ({
+                    ...prev,
+                    city: autoCity || prev.city,
+                    state: autoState || prev.state,
+                    country: autoCountry || prev.country
+                }))
+
+                toast.success(`📍 Auto-detected: ${autoCity}, ${autoState}`)
+            } else {
+                toast.error('No location found for this PIN code')
+            }
+        } catch (err) {
+            console.warn('Pincode lookup notice:', err.message)
+            toast.error(err.message || 'Pincode lookup failed')
+        } finally {
+            setIsLookingUpPincode(false)
         }
-    }, [])
+    }
 
     const handleChange = (e) => {
         const { name, value, type, checked } = e.target
@@ -107,6 +134,11 @@ const AddressModal = ({ setShowAddressModal, editAddress = null, userId = null, 
             ...prev,
             [name]: type === 'checkbox' ? checked : value
         }))
+
+        // Auto-trigger lookup if Indian pincode reaches 6 digits
+        if (name === 'zip' && value.trim().length === 6 && /^\d{6}$/.test(value.trim())) {
+            handlePincodeLookup(value.trim())
+        }
     }
 
     const handleSubmit = async (e) => {
@@ -401,18 +433,75 @@ const AddressModal = ({ setShowAddressModal, editAddress = null, userId = null, 
 
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                             <div>
-                                <label className="text-xs font-medium text-slate-700 mb-1 block">
-                                    Postal / ZIP Code <span className="text-red-500">*</span>
-                                </label>
-                                <input
-                                    type="text"
-                                    name="zip"
-                                    value={formData.zip}
-                                    onChange={handleChange}
-                                    placeholder="e.g. 10001"
-                                    required
-                                    className="w-full px-3.5 py-2.5 bg-slate-50/50 hover:bg-slate-50 focus:bg-white border border-slate-200 focus:border-green-500 rounded-xl text-sm text-slate-800 placeholder-slate-400 outline-none transition ring-0 focus:ring-4 focus:ring-green-500/10"
-                                />
+                                <div className="flex items-center justify-between mb-1">
+                                    <label className="text-xs font-medium text-slate-700">
+                                        Postal / PIN Code <span className="text-red-500">*</span>
+                                    </label>
+                                    <button
+                                        type="button"
+                                        disabled={isLookingUpPincode || !formData.zip.trim()}
+                                        onClick={() => handlePincodeLookup(formData.zip)}
+                                        className="inline-flex items-center gap-1 text-[11px] font-semibold text-green-700 hover:text-green-800 disabled:opacity-40 cursor-pointer"
+                                    >
+                                        {isLookingUpPincode ? (
+                                            <>
+                                                <Loader2 size={11} className="animate-spin" /> Verifying...
+                                            </>
+                                        ) : (
+                                            <>
+                                                <Sparkles size={11} /> Auto-fill City & State
+                                            </>
+                                        )}
+                                    </button>
+                                </div>
+                                <div className="relative">
+                                    <input
+                                        type="text"
+                                        name="zip"
+                                        value={formData.zip}
+                                        onChange={handleChange}
+                                        placeholder="e.g. 400001 or 110001"
+                                        required
+                                        className="w-full px-3.5 py-2.5 bg-slate-50/50 hover:bg-slate-50 focus:bg-white border border-slate-200 focus:border-green-500 rounded-xl text-sm text-slate-800 placeholder-slate-400 outline-none transition ring-0 focus:ring-4 focus:ring-green-500/10"
+                                    />
+                                    {isLookingUpPincode && (
+                                        <Loader2 size={15} className="absolute right-3.5 top-1/2 -translate-y-1/2 text-green-600 animate-spin" />
+                                    )}
+                                </div>
+
+                                {pincodeDetails && (
+                                    <div className="mt-2 p-2 rounded-lg bg-green-50/80 border border-green-200/80 text-[11px] text-green-800 space-y-1">
+                                        <p className="font-semibold flex items-center gap-1">
+                                            <Check size={12} className="stroke-[3] text-green-600" />
+                                            {pincodeDetails.district}, {pincodeDetails.state}
+                                        </p>
+                                        {Array.isArray(pincodeDetails.postOffices) && pincodeDetails.postOffices.length > 1 && (
+                                            <div>
+                                                <span className="text-[10px] text-slate-500 block mb-0.5">Select Specific Post Office:</span>
+                                                <select
+                                                    className="w-full bg-white border border-green-200 text-xs rounded-md p-1 outline-none text-slate-700 cursor-pointer"
+                                                    onChange={(e) => {
+                                                        const po = pincodeDetails.postOffices.find(p => p.name === e.target.value)
+                                                        if (po) {
+                                                            setFormData(prev => ({
+                                                                ...prev,
+                                                                city: po.district || po.name || prev.city
+                                                            }))
+                                                        }
+                                                    }}
+                                                    defaultValue=""
+                                                >
+                                                    <option value="" disabled>Choose branch locality...</option>
+                                                    {pincodeDetails.postOffices.map((po, i) => (
+                                                        <option key={i} value={po.name}>
+                                                            {po.name} ({po.branchType || 'Branch'})
+                                                        </option>
+                                                    ))}
+                                                </select>
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
                             </div>
 
                             <div>
