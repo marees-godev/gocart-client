@@ -10,17 +10,29 @@ import {
     StarIcon,
     SettingsIcon,
     Store as StoreIcon,
-    ExternalLink
+    ExternalLink,
+    Boxes
 } from "lucide-react"
 import Link from "next/link"
+import { useResizableSidebar } from "@/lib/hooks/useResizableSidebar"
 
-const StoreSidebar = ({ storeInfo }) => {
+const StoreSidebar = ({ storeInfo, sidebar: externalSidebar }) => {
     const pathname = usePathname()
+    const internalSidebar = useResizableSidebar({
+        storageKey: 'gocart_store_sidebar_width',
+        defaultWidth: 256,
+        minWidth: 200,
+        maxWidth: 450
+    })
+
+    const sidebar = externalSidebar || internalSidebar
+    const { width, isResizing, startResizing, resetWidth } = sidebar
 
     const sidebarLinks = [
         { name: 'Dashboard', href: '/store', icon: HomeIcon },
         { name: 'Add Product', href: '/store/add-product', icon: SquarePlusIcon },
         { name: 'Manage Product', href: '/store/manage-product', icon: SquarePenIcon },
+        { name: 'Inventory', href: '/store/inventory', icon: Boxes },
         { name: 'Orders', href: '/store/orders', icon: LayoutListIcon },
         { name: 'Analytics', href: '/store/analytics', icon: BarChart3Icon },
         { name: 'Coupons', href: '/store/coupons', icon: TicketPercentIcon },
@@ -33,7 +45,12 @@ const StoreSidebar = ({ storeInfo }) => {
     const approvalStatus = storeInfo?.approvalStatus || 'DRAFT'
 
     return (
-        <div className="inline-flex h-full flex-col gap-5 border-r border-slate-200 sm:min-w-60 bg-white">
+        <aside
+            style={{ width: `${width}px` }}
+            className={`relative inline-flex h-full flex-col gap-5 border-r border-slate-200 bg-white shrink-0 max-sm:!w-auto ${
+                isResizing ? 'transition-none select-none' : 'transition-[width] duration-75'
+            }`}
+        >
             <div className="flex flex-col gap-2.5 justify-center items-center pt-6 px-4 max-sm:hidden text-center">
                 {storeLogo && typeof storeLogo === 'string' && storeLogo.startsWith('http') ? (
                     <img
@@ -97,7 +114,23 @@ const StoreSidebar = ({ storeInfo }) => {
                     )
                 })}
             </div>
-        </div>
+
+            {/* Resizer Handle */}
+            <div
+                onMouseDown={startResizing}
+                onDoubleClick={resetWidth}
+                className={`absolute top-0 right-0 bottom-0 w-2 -mr-1 cursor-col-resize select-none z-30 flex items-center justify-center transition-colors group max-sm:hidden ${
+                    isResizing ? 'bg-emerald-500' : 'hover:bg-emerald-500/40'
+                }`}
+                title="Drag to resize sidebar • Double-click to reset"
+            >
+                <div
+                    className={`w-0.5 h-8 rounded-full transition-opacity ${
+                        isResizing ? 'bg-white opacity-100' : 'bg-slate-300 opacity-0 group-hover:opacity-100 group-hover:bg-emerald-600'
+                    }`}
+                />
+            </div>
+        </aside>
     )
 }
 

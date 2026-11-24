@@ -22,6 +22,7 @@ export function middleware(request) {
 
     const token = request.cookies.get('token')?.value
     const isStoreRoute = pathname.startsWith('/store');
+    const isDeliveryRoute = (pathname === '/delivery' || pathname.startsWith('/delivery/')) && pathname !== '/delivery/login';
 
     if (!token && isStoreRoute) {
         const loginUrl = new URL('/merchant/login', request.url)
@@ -42,9 +43,28 @@ export function middleware(request) {
         }
     }
 
+    if (!token && isDeliveryRoute) {
+        const loginUrl = new URL('/delivery/login', request.url)
+        loginUrl.searchParams.set('redirect', pathname)
+        return NextResponse.redirect(loginUrl)
+    }
+
+    if (token && isDeliveryRoute) {
+        const payload = decodeJwtPayload(token)
+
+        if (!payload) {
+            const loginUrl = new URL('/delivery/login', request.url)
+            return NextResponse.redirect(loginUrl)
+        }
+
+        if (payload.role !== 'DELIVERY_PARTNER' && payload.role !== 'ADMIN') {
+            return NextResponse.redirect(new URL('/', request.url))
+        }
+    }
+
     return NextResponse.next();
 }
 
 export const config = {
-    matcher: ['/admin/:path*', '/store/:path*'],
+    matcher: ['/admin/:path*', '/store/:path*', '/delivery', '/delivery/:path*'],
 }

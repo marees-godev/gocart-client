@@ -15,6 +15,7 @@ import {
 } from "lucide-react"
 import SellerNavbar from "./StoreNavbar"
 import SellerSidebar from "./StoreSidebar"
+import { useResizableSidebar } from "@/lib/hooks/useResizableSidebar"
 import { graphqlRequest } from "@/lib/apiClient"
 import { GET_USER_STORE_QUERY, SUBMIT_STORE_MUTATION } from "@/lib/graphql/store"
 import toast from "react-hot-toast"
@@ -41,6 +42,13 @@ const StoreLayout = ({ children }) => {
     const [loading, setLoading] = useState(true)
     const [storeInfo, setStoreInfo] = useState(null)
     const [submittingStatus, setSubmittingStatus] = useState(false)
+
+    const sidebar = useResizableSidebar({
+        storageKey: 'gocart_store_sidebar_width',
+        defaultWidth: 256,
+        minWidth: 200,
+        maxWidth: 450
+    })
 
     const fetchStore = async () => {
         try {
@@ -196,11 +204,11 @@ const StoreLayout = ({ children }) => {
     const currentApproval = storeInfo.approvalStatus || 'DRAFT'
 
     return (
-        <StoreContext.Provider value={{ storeInfo, setStoreInfo, refetchStore: fetchStore, submittingStatus, submitDraftStore }}>
+        <StoreContext.Provider value={{ storeInfo, setStoreInfo, refetchStore: fetchStore, submittingStatus, submitDraftStore, sidebar }}>
             <div className="flex flex-col h-screen bg-slate-50">
-                <SellerNavbar storeInfo={storeInfo} />
+                <SellerNavbar storeInfo={storeInfo} sidebar={sidebar} />
                 <div className="flex flex-1 items-start h-full overflow-hidden">
-                    <SellerSidebar storeInfo={storeInfo} />
+                    <SellerSidebar storeInfo={storeInfo} sidebar={sidebar} />
                     <div className="flex-1 h-full p-5 lg:p-8 overflow-y-scroll">
                         
                         {/* Status Banners */}

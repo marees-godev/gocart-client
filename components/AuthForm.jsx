@@ -296,7 +296,7 @@ function AuthFormInner({
                 router.push('/store')
                 break
             case 'DELIVERY_PARTNER':
-                router.push('/orders')
+                router.push('/delivery')
                 break
             case 'USER':
             default:
