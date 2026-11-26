@@ -47,7 +47,9 @@ import {
 import {
     GET_ME_QUERY,
     GET_USER_QUERY,
-    UPDATE_USER_MUTATION
+    UPDATE_USER_MUTATION,
+    DEACTIVATE_ACCOUNT_MUTATION,
+    DELETE_ACCOUNT_MUTATION
 } from '@/lib/graphql/user'
 import {
     CHANGE_PASSWORD_MUTATION
@@ -1407,6 +1409,56 @@ export default function ProfilePage() {
                                             }`}
                                         />
                                     </button>
+                                </div>
+
+                                {/* Account Lifecycle: Deactivate / Delete */}
+                                <div className="pt-6 border-t border-rose-100 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                                    <div className="space-y-1">
+                                        <h4 className="font-semibold text-rose-800 text-sm">Account Lifecycle</h4>
+                                        <p className="text-xs text-slate-500 max-w-md">
+                                            Temporarily deactivate your account or request permanent account deletion.
+                                        </p>
+                                    </div>
+                                    <div className="flex items-center gap-2.5">
+                                        <button
+                                            type="button"
+                                            onClick={async () => {
+                                                const reason = prompt('Reason for deactivating your account (optional):')
+                                                if (reason === null) return
+                                                const toastId = toast.loading('Deactivating account...')
+                                                try {
+                                                    const res = await graphqlRequest(DEACTIVATE_ACCOUNT_MUTATION, { input: { reason } })
+                                                    if (res?.deactivateAccount?.success) {
+                                                        toast.success(res.deactivateAccount.message || 'Account deactivated', { id: toastId })
+                                                    }
+                                                } catch (err) {
+                                                    toast.error(err.message || 'Deactivation failed', { id: toastId })
+                                                }
+                                            }}
+                                            className="px-4 py-2 rounded-xl text-xs font-semibold text-amber-800 bg-amber-50 hover:bg-amber-100 border border-amber-200 cursor-pointer"
+                                        >
+                                            Deactivate Account
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={async () => {
+                                                const reason = prompt('Enter reason to permanently delete your account:')
+                                                if (!reason) return
+                                                const toastId = toast.loading('Deleting account...')
+                                                try {
+                                                    const res = await graphqlRequest(DELETE_ACCOUNT_MUTATION, { input: { reason } })
+                                                    if (res?.deleteAccount?.success) {
+                                                        toast.success(res.deleteAccount.message || 'Account scheduled for deletion', { id: toastId })
+                                                    }
+                                                } catch (err) {
+                                                    toast.error(err.message || 'Deletion failed', { id: toastId })
+                                                }
+                                            }}
+                                            className="px-4 py-2 rounded-xl text-xs font-semibold text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 cursor-pointer"
+                                        >
+                                            Delete Account
+                                        </button>
+                                    </div>
                                 </div>
 
                                 {/* Danger Zone */}

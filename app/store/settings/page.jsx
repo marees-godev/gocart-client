@@ -28,7 +28,10 @@ import { graphqlRequest } from '@/lib/apiClient'
 import {
     UPDATE_STORE_MUTATION,
     PUBLISH_STORE_MUTATION,
-    UNPUBLISH_STORE_MUTATION
+    UNPUBLISH_STORE_MUTATION,
+    SUBMIT_KYC_MUTATION,
+    APPEAL_STORE_MUTATION,
+    CLOSE_STORE_MUTATION
 } from '@/lib/graphql/store'
 import toast from 'react-hot-toast'
 
@@ -549,6 +552,38 @@ export default function MerchantStoreSettings() {
                                 />
                             </div>
                         </div>
+
+                        <div className="pt-4 border-t border-slate-100 flex flex-wrap items-center justify-between gap-3">
+                            <div className="text-xs text-slate-500">
+                                KYC Status: <strong className="text-slate-800">{storeInfo?.kycStatus || 'NOT_SUBMITTED'}</strong>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={async () => {
+                                    if (!storeInfo?.id) return
+                                    const toastId = toast.loading('Submitting KYC details...')
+                                    try {
+                                        await graphqlRequest(SUBMIT_KYC_MUTATION, {
+                                            input: {
+                                                storeId: storeInfo.id,
+                                                bankName: storeData.bankName || 'Default Bank',
+                                                accountNumber: storeData.accountNumber || '0000000000',
+                                                accountHolderName: storeData.accountHolderName || storeData.name,
+                                                ifscCode: storeData.routingNumber || undefined,
+                                                gstin: storeData.taxId || '22AAAAA0000A1Z5',
+                                            },
+                                        })
+                                        toast.success('KYC submitted for verification!', { id: toastId })
+                                        if (refetchStore) await refetchStore()
+                                    } catch (err) {
+                                        toast.error(err.message || 'KYC submission failed', { id: toastId })
+                                    }
+                                }}
+                                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl transition cursor-pointer"
+                            >
+                                Submit KYC Verification
+                            </button>
+                        </div>
                     </div>
                 )}
 
@@ -601,6 +636,46 @@ export default function MerchantStoreSettings() {
                                 />
                             </div>
                         )}
+
+                        <div className="pt-4 border-t border-slate-100 flex flex-wrap items-center justify-between gap-3">
+                            {(storeInfo?.approvalStatus === 'REJECTED' || storeInfo?.approvalStatus === 'SUSPENDED') && (
+                                <button
+                                    type="button"
+                                    onClick={async () => {
+                                        const reason = prompt('Enter appeal justification for admin review:')
+                                        if (!reason || !storeInfo?.id) return
+                                        const toastId = toast.loading('Submitting store appeal...')
+                                        try {
+                                            await graphqlRequest(APPEAL_STORE_MUTATION, { id: storeInfo.id, reason })
+                                            toast.success('Store appeal submitted!', { id: toastId })
+                                        } catch (err) {
+                                            toast.error(err.message || 'Appeal failed', { id: toastId })
+                                        }
+                                    }}
+                                    className="px-4 py-2 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 rounded-xl text-xs font-bold cursor-pointer"
+                                >
+                                    Appeal Store Decision
+                                </button>
+                            )}
+                            <button
+                                type="button"
+                                onClick={async () => {
+                                    const reason = prompt('Enter reason for closing this store:')
+                                    if (!reason || !storeInfo?.id) return
+                                    const toastId = toast.loading('Closing store...')
+                                    try {
+                                        await graphqlRequest(CLOSE_STORE_MUTATION, { id: storeInfo.id, reason })
+                                        toast.success('Store closed', { id: toastId })
+                                        if (refetchStore) await refetchStore()
+                                    } catch (err) {
+                                        toast.error(err.message || 'Failed to close store', { id: toastId })
+                                    }
+                                }}
+                                className="px-4 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-xl text-xs font-bold cursor-pointer ml-auto"
+                            >
+                                Close Store Permanently
+                            </button>
+                        </div>
                     </div>
                 )}
 

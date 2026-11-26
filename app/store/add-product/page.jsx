@@ -554,29 +554,54 @@ export default function StoreAddProduct() {
                 const createdProduct = response.createProduct
                 toast.success(`Product "${createdProduct.name}" created successfully!`)
 
-                // Asynchronously synchronize initial stock with inventory-service
+                // Synchronize initial stock with inventory-service before redirecting
                 try {
+                    const invTasks = []
                     if (Array.isArray(createdProduct.variants) && createdProduct.variants.length > 0) {
-                        for (const v of createdProduct.variants) {
+                        const totalVariantStock = createdProduct.variants.reduce(
+                            (sum, v) => sum + (typeof v.stock === 'number' ? v.stock : 10),
+                            0
+                        )
+                        invTasks.push(
                             graphqlRequest(CREATE_INVENTORY_MUTATION, {
                                 input: {
                                     productId: createdProduct.id,
-                                    variantId: v.id,
-                                    sku: v.sku || createdProduct.sku,
-                                    initialQuantity: typeof v.stock === 'number' ? v.stock : 10,
+                                    sku: createdProduct.sku,
+                                    initialQuantity: totalVariantStock,
                                     lowStockThreshold: 5,
                                 }
-                            }).catch(() => {})
+                            })
+                        )
+                        for (const v of createdProduct.variants) {
+                            invTasks.push(
+                                graphqlRequest(CREATE_INVENTORY_MUTATION, {
+                                    input: {
+                                        productId: createdProduct.id,
+                                        variantId: v.id,
+                                        sku: v.sku || createdProduct.sku,
+                                        initialQuantity: typeof v.stock === 'number' ? v.stock : 10,
+                                        lowStockThreshold: 5,
+                                    }
+                                })
+                            )
                         }
                     } else {
-                        graphqlRequest(CREATE_INVENTORY_MUTATION, {
-                            input: {
-                                productId: createdProduct.id,
-                                sku: createdProduct.sku,
-                                initialQuantity: 10,
-                                lowStockThreshold: 5,
-                            }
-                        }).catch(() => {})
+                        invTasks.push(
+                            graphqlRequest(CREATE_INVENTORY_MUTATION, {
+                                input: {
+                                    productId: createdProduct.id,
+                                    sku: createdProduct.sku,
+                                    initialQuantity: 10,
+                                    lowStockThreshold: 5,
+                                }
+                            })
+                        )
+                    }
+                    const invResults = await Promise.allSettled(invTasks)
+                    const failedInv = invResults.filter(r => r.status === 'rejected')
+                    if (failedInv.length > 0) {
+                        console.warn("Inventory initialization warning:", failedInv.map(f => f.reason?.message || f.reason))
+                        toast.error("Product created, but initial inventory sync failed. You can initialize it from the Inventory page.")
                     }
                 } catch (invErr) {
                     console.warn("Inventory initialization notice:", invErr)

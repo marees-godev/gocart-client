@@ -253,7 +253,6 @@ const OrderSummary = ({ totalPrice, items = [] }) => {
                 idempotencyKey: orderIdempotencyKey,
                 currency: currencyCode,
                 discountAmount: Number(discountAmount.toFixed(2)),
-                platformFee: Number(platformFee || 7.00),
                 ...(shippingAddressId ? { shippingAddressId } : {}),
                 ...(cartId ? { cartId: String(cartId) } : {}),
             };

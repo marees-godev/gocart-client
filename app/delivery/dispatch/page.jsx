@@ -25,6 +25,7 @@ import {
     UPDATE_DELIVERY_STATUS_MUTATION,
     CANCEL_DELIVERY_MUTATION
 } from '@/lib/graphql/delivery'
+import { GET_ORDER_QUERY } from '@/lib/graphql/order'
 import toast from 'react-hot-toast'
 
 const DELIVERY_STAGES = [
@@ -53,6 +54,34 @@ export default function DeliveryDispatchPage() {
         contactNumber: ''
     })
     const [isCreating, setIsCreating] = useState(false)
+    const [lookingUpOrder, setLookingUpOrder] = useState(false)
+    const [lookedUpOrder, setLookedUpOrder] = useState(null)
+
+    const handleLookupOrderForDispatch = async () => {
+        const oid = createForm.orderId.trim()
+        if (!oid) {
+            toast.error('Enter an Order ID first')
+            return
+        }
+        setLookingUpOrder(true)
+        try {
+            const res = await graphqlRequest(GET_ORDER_QUERY, { id: oid })
+            if (res?.order) {
+                setLookedUpOrder(res.order)
+                setCreateForm(prev => ({
+                    ...prev,
+                    shippingAddressId: res.order.shippingAddressId || prev.shippingAddressId,
+                }))
+                toast.success(`Order loaded (${res.order.paymentStatus || res.order.status})`)
+            } else {
+                toast.error('Order not found')
+            }
+        } catch (err) {
+            toast.error(err.message || 'Could not fetch order details')
+        } finally {
+            setLookingUpOrder(false)
+        }
+    }
 
     const handleSearch = async (e) => {
         e?.preventDefault()
@@ -432,14 +461,30 @@ export default function DeliveryDispatchPage() {
                                 <label className="block font-semibold text-slate-700 mb-1">
                                     Customer Order ID <span className="text-rose-500">*</span>
                                 </label>
-                                <input
-                                    type="text"
-                                    required
-                                    value={createForm.orderId}
-                                    onChange={(e) => setCreateForm({ ...createForm, orderId: e.target.value })}
-                                    placeholder="Order UUID (payment_status must be PAID)"
-                                    className="w-full px-3 py-2 rounded-xl border border-slate-200 focus:border-amber-500 outline-none"
-                                />
+                                <div className="flex gap-2">
+                                    <input
+                                        type="text"
+                                        required
+                                        value={createForm.orderId}
+                                        onChange={(e) => setCreateForm({ ...createForm, orderId: e.target.value })}
+                                        placeholder="Order UUID (payment_status must be PAID)"
+                                        className="flex-1 px-3 py-2 rounded-xl border border-slate-200 focus:border-amber-500 outline-none"
+                                    />
+                                    <button
+                                        type="button"
+                                        onClick={handleLookupOrderForDispatch}
+                                        disabled={lookingUpOrder}
+                                        className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold rounded-xl transition cursor-pointer shrink-0 disabled:opacity-50"
+                                    >
+                                        {lookingUpOrder ? 'Fetching...' : 'Lookup'}
+                                    </button>
+                                </div>
+                                {lookedUpOrder && (
+                                    <div className="mt-2 p-2.5 rounded-xl bg-amber-50/60 border border-amber-200 text-[11px] text-slate-700 space-y-0.5">
+                                        <p className="font-bold">Order #{lookedUpOrder.orderNumber || lookedUpOrder.id.slice(0, 8)} • Payment: {lookedUpOrder.paymentStatus || 'N/A'}</p>
+                                        <p className="text-slate-500">{lookedUpOrder.items?.length || 0} item(s) • Total: ₹{lookedUpOrder.totalAmount}</p>
+                                    </div>
+                                )}
                             </div>
 
                             <div>

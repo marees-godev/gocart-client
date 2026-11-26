@@ -9,6 +9,7 @@ import { logout } from "@/lib/features/auth/authSlice";
 import { graphqlRequest } from "@/lib/apiClient";
 import { LOGOUT_MUTATION } from "@/lib/graphql/auth";
 import CurrencySelector from "./CurrencySelector";
+import NotificationBell from "./NotificationBell";
 import { promptLoginModal } from "./AuthModalContext";
 
 const Navbar = () => {
@@ -46,6 +47,7 @@ const Navbar = () => {
 
                     {/* Mobile Navigation Icons */}
                     <div className="flex sm:hidden items-center gap-3.5 text-slate-600">
+                        <NotificationBell />
                         <Link href="/orders" className="p-1 hover:text-green-600 transition" title="My Orders">
                             <Package size={20} />
                         </Link>
@@ -113,6 +115,7 @@ const Navbar = () => {
                             </Link>
                         )}
                         <CurrencySelector />
+                        <NotificationBell />
 
                         {/* Auth Buttons */}
                         {isAuthenticated ? (

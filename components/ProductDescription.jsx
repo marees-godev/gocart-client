@@ -6,7 +6,8 @@ import Image from "next/image"
 import Link from "next/link"
 import { assets } from "@/assets/assets"
 import { graphqlRequest } from "@/lib/apiClient"
-import { GET_PRODUCT_RATINGS_QUERY } from "@/lib/graphql/rating"
+import { GET_PRODUCT_RATINGS_QUERY, FLAG_RATING_MUTATION } from "@/lib/graphql/rating"
+import toast from "react-hot-toast"
 
 const ProductDescription = ({ product }) => {
     const [selectedTab, setSelectedTab] = useState('Description')
@@ -175,10 +176,32 @@ const ProductDescription = ({ product }) => {
 
                                         <p className="text-sm text-slate-700 leading-relaxed">{item.review}</p>
 
-                                        <div className="flex items-center gap-2 text-xs text-slate-400 pt-1 border-t border-slate-100">
-                                            <span>Purchased customer</span>
-                                            <span>•</span>
-                                            <span>{item.createdAt ? new Date(item.createdAt).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) : 'Verified Order'}</span>
+                                        <div className="flex items-center justify-between text-xs text-slate-400 pt-1 border-t border-slate-100">
+                                            <div className="flex items-center gap-2">
+                                                <span>Purchased customer</span>
+                                                <span>•</span>
+                                                <span>{item.createdAt ? new Date(item.createdAt).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) : 'Verified Order'}</span>
+                                            </div>
+                                            <button
+                                                type="button"
+                                                onClick={async () => {
+                                                    const reason = prompt('Why are you flagging this review? (e.g., spam, fake review)')
+                                                    if (!reason) return
+                                                    try {
+                                                        const res = await graphqlRequest(FLAG_RATING_MUTATION, {
+                                                            input: { ratingId: item.id, category: 'SPAM', reason }
+                                                        })
+                                                        if (res?.flagRating?.success) {
+                                                            toast.success('Review flagged for moderation')
+                                                        }
+                                                    } catch (err) {
+                                                        toast.error(err.message || 'Could not flag review')
+                                                    }
+                                                }}
+                                                className="text-[11px] text-slate-400 hover:text-rose-600 transition cursor-pointer"
+                                            >
+                                                Report
+                                            </button>
                                         </div>
                                     </div>
                                 ))}

@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation"
 import { useState, useEffect, useRef } from "react"
 import Image from "next/image"
 import Counter from "./Counter"
+import ExchangeModal from "./ExchangeModal"
 import { useDispatch, useSelector } from "react-redux"
 import toast from "react-hot-toast"
 import { assets } from "@/assets/assets"
@@ -130,6 +131,8 @@ const ProductDetails = ({ product }) => {
     const [checkingPincode, setCheckingPincode] = useState(false)
     const [pincodeLocation, setPincodeLocation] = useState(null)
     const [pincodeError, setPincodeError] = useState(null)
+    const [showExchangeModal, setShowExchangeModal] = useState(false)
+    const [lockedQuote, setLockedQuote] = useState(null)
 
     const handleCheckPincode = async (e) => {
         e?.preventDefault()
@@ -340,6 +343,30 @@ const ProductDetails = ({ product }) => {
                     </button>
                 </div>
 
+                {/* Exchange Eligibility Banner */}
+                {(product.isExchangeEligible || product.maxExchangeDiscount > 0) && (
+                    <div className="mt-4 p-4 rounded-2xl bg-emerald-50/60 border border-emerald-200 flex items-center justify-between gap-3">
+                        <div className="text-xs">
+                            <p className="font-bold text-emerald-900">
+                                Trade-In &amp; Exchange Available
+                                {product.maxExchangeDiscount > 0 && ` (Up to ${formatPrice(product.maxExchangeDiscount)} off)`}
+                            </p>
+                            <p className="text-emerald-700 mt-0.5">
+                                {lockedQuote
+                                    ? `Locked Quote #${lockedQuote.id.slice(0, 8)} — ${formatPrice(lockedQuote.finalDiscount)} discount`
+                                    : 'Get instant valuation for your old device'}
+                            </p>
+                        </div>
+                        <button
+                            type="button"
+                            onClick={() => setShowExchangeModal(true)}
+                            className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shrink-0 cursor-pointer"
+                        >
+                            {lockedQuote ? 'View Quote' : 'Check Exchange'}
+                        </button>
+                    </div>
+                )}
+
                 {/* Delivery & Pincode Serviceability Check */}
                 <div className="mt-6 p-4 rounded-2xl bg-slate-50 border border-slate-200/80 space-y-3">
                     <div className="flex items-center gap-2 text-xs font-bold text-slate-700">
@@ -403,6 +430,14 @@ const ProductDetails = ({ product }) => {
                     </p>
                 </div>
             </div>
+
+            {showExchangeModal && (
+                <ExchangeModal
+                    product={product}
+                    onClose={() => setShowExchangeModal(false)}
+                    onQuoteLocked={(q) => setLockedQuote(q)}
+                />
+            )}
         </div>
     )
 }

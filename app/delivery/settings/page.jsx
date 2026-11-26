@@ -17,7 +17,9 @@ import { useDelivery } from '@/components/delivery/DeliveryLayout'
 import { graphqlRequest } from '@/lib/apiClient'
 import {
     UPDATE_DELIVERY_PARTNER_PROFILE_MUTATION,
-    APPEAL_DELIVERY_PARTNER_MUTATION
+    APPEAL_DELIVERY_PARTNER_MUTATION,
+    REACTIVATE_DELIVERY_PARTNER_MUTATION,
+    DELETE_DELIVERY_PARTNER_MUTATION
 } from '@/lib/graphql/delivery'
 import GstinModal from '@/components/delivery/GstinModal'
 import toast from 'react-hot-toast'
@@ -251,6 +253,55 @@ export default function DeliverySettingsPage() {
                 >
                     {profile?.isActive ? 'Pause Carrier Dispatch' : 'Activate Carrier Online'}
                 </button>
+            </div>
+
+            {/* Reactivate / Delete Carrier Account */}
+            <div className="bg-white p-6 rounded-3xl border border-rose-200/80 shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div>
+                    <h3 className="text-sm font-bold text-rose-800">Carrier Account Lifecycle</h3>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                        Reactivate a deactivated carrier account or permanently schedule carrier deletion.
+                    </p>
+                </div>
+                <div className="flex items-center gap-2.5">
+                    <button
+                        type="button"
+                        onClick={async () => {
+                            const toastId = toast.loading('Reactivating carrier...')
+                            try {
+                                const res = await graphqlRequest(REACTIVATE_DELIVERY_PARTNER_MUTATION)
+                                if (res?.reactivateDeliveryPartner?.success) {
+                                    setProfile((prev) => (prev ? { ...prev, isActive: true } : prev))
+                                    toast.success(res.reactivateDeliveryPartner.message || 'Carrier reactivated!', { id: toastId })
+                                }
+                            } catch (err) {
+                                toast.error(err.message || 'Reactivation failed', { id: toastId })
+                            }
+                        }}
+                        className="px-4 py-2 text-xs font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-xl transition cursor-pointer"
+                    >
+                        Reactivate Carrier
+                    </button>
+                    <button
+                        type="button"
+                        onClick={async () => {
+                            const reason = prompt('Enter reason for deleting carrier account:')
+                            if (!reason) return
+                            const toastId = toast.loading('Deleting carrier account...')
+                            try {
+                                const res = await graphqlRequest(DELETE_DELIVERY_PARTNER_MUTATION, { reason })
+                                if (res?.deleteDeliveryPartner?.success) {
+                                    toast.success(res.deleteDeliveryPartner.message || 'Carrier account deleted', { id: toastId })
+                                }
+                            } catch (err) {
+                                toast.error(err.message || 'Deletion failed', { id: toastId })
+                            }
+                        }}
+                        className="px-4 py-2 text-xs font-bold text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-xl transition cursor-pointer"
+                    >
+                        Delete Account
+                    </button>
+                </div>
             </div>
 
             {/* EDIT PROFILE MODAL */}

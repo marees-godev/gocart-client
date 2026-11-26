@@ -6,7 +6,9 @@ import Link from 'next/link'
 import { useSelector } from 'react-redux'
 import Loading from '@/components/Loading'
 import { graphqlRequest } from '@/lib/apiClient'
-import { LIST_MY_ORDERS_QUERY, UPDATE_ORDER_STATUS_MUTATION } from '@/lib/graphql/order'
+import { LIST_MY_ORDERS_QUERY, UPDATE_ORDER_STATUS_MUTATION, CANCEL_ORDER_MUTATION } from '@/lib/graphql/order'
+import { GET_DELIVERY_BY_ORDER_QUERY, CANCEL_DELIVERY_MUTATION } from '@/lib/graphql/delivery'
+import { GET_PAYMENT_BY_ORDER_QUERY, CREATE_REFUND_MUTATION } from '@/lib/graphql/payment'
 import { useStore } from '@/components/store/StoreLayout'
 import { useCurrency } from '@/lib/features/currency/useCurrency'
 import toast from 'react-hot-toast'
@@ -66,6 +68,11 @@ export default function StoreOrders() {
     const [activeTab, setActiveTab] = useState('ALL') // 'ALL' | 'PENDING' | 'SHIPPED' | 'DELIVERED' | 'CANCELLED'
     const [copiedId, setCopiedId] = useState(null)
     const [copiedAddress, setCopiedAddress] = useState(false)
+    const [orderDelivery, setOrderDelivery] = useState(null)
+    const [loadingDelivery, setLoadingDelivery] = useState(false)
+    const [orderPayment, setOrderPayment] = useState(null)
+    const [refunding, setRefunding] = useState(false)
+    const [cancellingOrder, setCancellingOrder] = useState(false)
 
     const fetchOrders = async (silent = false) => {
         try {
@@ -136,15 +143,100 @@ export default function StoreOrders() {
         setTimeout(() => setCopiedId(null), 2000)
     }
 
-    const openModal = (order) => {
+    const openModal = async (order) => {
         setSelectedOrder(order)
         setIsModalOpen(true)
+        setOrderDelivery(null)
+        setOrderPayment(null)
+        setLoadingDelivery(true)
+        try {
+            const [delRes, payRes] = await Promise.allSettled([
+                graphqlRequest(GET_DELIVERY_BY_ORDER_QUERY, { orderId: String(order.id) }),
+                graphqlRequest(GET_PAYMENT_BY_ORDER_QUERY, { orderId: String(order.id) }),
+            ])
+            if (delRes.status === 'fulfilled' && delRes.value?.deliveryByOrder) {
+                setOrderDelivery(delRes.value.deliveryByOrder)
+            }
+            if (payRes.status === 'fulfilled' && payRes.value?.paymentByOrderId) {
+                setOrderPayment(payRes.value.paymentByOrderId)
+            }
+        } finally {
+            setLoadingDelivery(false)
+        }
+    }
+
+    const handleCancelDelivery = async (deliveryId) => {
+        const reason = prompt('Enter reason for cancelling delivery dispatch:')
+        if (!reason) return
+        const toastId = toast.loading('Cancelling delivery dispatch...')
+        try {
+            const res = await graphqlRequest(CANCEL_DELIVERY_MUTATION, { id: String(deliveryId), reason })
+            if (res?.cancelDelivery) {
+                setOrderDelivery(prev => prev ? { ...prev, status: res.cancelDelivery.status || 'CANCELLED' } : prev)
+                toast.success('Delivery dispatch cancelled', { id: toastId })
+            }
+        } catch (err) {
+            toast.error(err.message || 'Failed to cancel delivery', { id: toastId })
+        }
+    }
+
+    const handleCancelOrder = async (orderId) => {
+        const reason = prompt('Enter cancellation reason for this order:')
+        if (!reason) return
+        setCancellingOrder(true)
+        const toastId = toast.loading('Cancelling order...')
+        try {
+            const res = await graphqlRequest(CANCEL_ORDER_MUTATION, { id: String(orderId), reason })
+            if (res?.cancelOrder) {
+                setOrders(prev => prev.map(o => o.id === orderId ? { ...o, status: 'CANCELLED', orderStatus: 'CANCELLED' } : o))
+                setSelectedOrder(prev => prev ? { ...prev, status: 'CANCELLED', orderStatus: 'CANCELLED' } : prev)
+                toast.success('Order cancelled!', { id: toastId })
+            }
+        } catch (err) {
+            toast.error(err.message || 'Failed to cancel order', { id: toastId })
+        } finally {
+            setCancellingOrder(false)
+        }
+    }
+
+    const handleIssueRefund = async () => {
+        if (!orderPayment?.id) {
+            toast.error('No payment record found for this order')
+            return
+        }
+        const amtStr = prompt(`Enter refund amount (max ${orderPayment.amount}):`, String(orderPayment.amount))
+        if (!amtStr) return
+        const amount = parseFloat(amtStr)
+        if (isNaN(amount) || amount <= 0) {
+            toast.error('Invalid refund amount')
+            return
+        }
+        const reason = prompt('Enter refund reason:') || 'Merchant initiated refund'
+        setRefunding(true)
+        const toastId = toast.loading('Processing refund...')
+        try {
+            const res = await graphqlRequest(CREATE_REFUND_MUTATION, {
+                paymentId: String(orderPayment.id),
+                amount,
+                reason,
+                idempotencyKey: crypto.randomUUID(),
+            })
+            if (res?.createRefund) {
+                toast.success(`Refund ${res.createRefund.status}: ${formatPrice(res.createRefund.amount)}`, { id: toastId })
+            }
+        } catch (err) {
+            toast.error(err.message || 'Failed to issue refund', { id: toastId })
+        } finally {
+            setRefunding(false)
+        }
     }
 
     const closeModal = () => {
         setSelectedOrder(null)
         setIsModalOpen(false)
         setCopiedAddress(false)
+        setOrderDelivery(null)
+        setOrderPayment(null)
     }
 
     // KPI Metrics calculation
@@ -810,6 +902,77 @@ export default function StoreOrders() {
                             )
                         })()}
 
+                        {/* Delivery Agent & Tracking Assignment */}
+                        <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200/80 space-y-3 mb-5">
+                            <div className="flex items-center justify-between">
+                                <span className="text-[11px] font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
+                                    <Truck size={14} className="text-emerald-600" />
+                                    Delivery Partner & Dispatch Assignment
+                                </span>
+                                {orderDelivery && orderDelivery.status !== 'DELIVERED' && orderDelivery.status !== 'CANCELLED' && (
+                                    <button
+                                        type="button"
+                                        onClick={() => handleCancelDelivery(orderDelivery.id)}
+                                        className="text-[11px] font-semibold text-rose-600 hover:underline cursor-pointer"
+                                    >
+                                        Cancel Delivery
+                                    </button>
+                                )}
+                            </div>
+
+                            {loadingDelivery ? (
+                                <p className="text-xs text-slate-400">Checking delivery assignment...</p>
+                            ) : orderDelivery ? (
+                                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs bg-white p-3 rounded-xl border border-slate-200/70">
+                                    <div>
+                                        <span className="text-[10px] text-slate-400 block">Assigned Partner</span>
+                                        <span className="font-bold text-slate-800">{orderDelivery.deliveryPartner || 'Carrier'}</span>
+                                    </div>
+                                    <div>
+                                        <span className="text-[10px] text-slate-400 block">Tracking Number</span>
+                                        <span className="font-mono font-bold text-slate-800">{orderDelivery.trackingNumber || 'Pending'}</span>
+                                    </div>
+                                    <div>
+                                        <span className="text-[10px] text-slate-400 block">Delivery Status</span>
+                                        <span className="inline-block px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200">
+                                            {orderDelivery.status}
+                                        </span>
+                                    </div>
+                                    <div>
+                                        <span className="text-[10px] text-slate-400 block">
+                                            {orderDelivery.deliveredAt ? 'Delivered At' : 'Est. Delivery'}
+                                        </span>
+                                        <span className="font-medium text-slate-700">
+                                            {orderDelivery.deliveredAt
+                                                ? new Date(orderDelivery.deliveredAt).toLocaleDateString()
+                                                : orderDelivery.estimatedDeliveryAt
+                                                    ? new Date(orderDelivery.estimatedDeliveryAt).toLocaleDateString()
+                                                    : 'Scheduled'}
+                                        </span>
+                                    </div>
+                                </div>
+                            ) : (
+                                <div className="text-xs text-slate-600 bg-white p-3 rounded-xl border border-dashed border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                                    <div>
+                                        <p className="font-semibold text-slate-700">Awaiting Carrier Dispatch</p>
+                                        <p className="text-[11px] text-slate-400 mt-0.5">
+                                            Share Order ID <span className="font-mono text-slate-600">{selectedOrder.id}</span>
+                                            {selectedOrder.shippingAddressId && (
+                                                <> &amp; Address ID <span className="font-mono text-slate-600">{selectedOrder.shippingAddressId}</span></>
+                                            )} with the assigned delivery partner.
+                                        </p>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={() => handleCopy(selectedOrder.id, 'dispatch-order-id')}
+                                        className="px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-[11px] shrink-0 cursor-pointer"
+                                    >
+                                        {copiedId === 'dispatch-order-id' ? 'Copied Order ID' : 'Copy Order ID'}
+                                    </button>
+                                </div>
+                            )}
+                        </div>
+
                         {/* Quick Fulfillment Status Changer */}
                         <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200/80 space-y-2 mb-6">
                             <span className="text-[11px] font-bold text-slate-600 uppercase tracking-wider block">
@@ -840,8 +1003,31 @@ export default function StoreOrders() {
                             </div>
                         </div>
 
-                        {/* Footer Close */}
-                        <div className="flex justify-end">
+                        {/* Footer Actions & Close */}
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                            <div className="flex items-center gap-2">
+                                {(selectedOrder.orderStatus || selectedOrder.status) !== 'CANCELLED' &&
+                                 (selectedOrder.orderStatus || selectedOrder.status) !== 'DELIVERED' && (
+                                    <button
+                                        type="button"
+                                        disabled={cancellingOrder}
+                                        onClick={() => handleCancelOrder(selectedOrder.id)}
+                                        className="px-4 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-xl text-xs font-semibold transition cursor-pointer disabled:opacity-50"
+                                    >
+                                        {cancellingOrder ? 'Cancelling...' : 'Cancel Order'}
+                                    </button>
+                                )}
+                                {orderPayment && (
+                                    <button
+                                        type="button"
+                                        disabled={refunding}
+                                        onClick={handleIssueRefund}
+                                        className="px-4 py-2 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 rounded-xl text-xs font-semibold transition cursor-pointer disabled:opacity-50"
+                                    >
+                                        {refunding ? 'Refunding...' : `Issue Refund (${orderPayment.status})`}
+                                    </button>
+                                )}
+                            </div>
                             <button 
                                 type="button"
                                 onClick={closeModal} 
