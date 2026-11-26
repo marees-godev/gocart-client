@@ -78,19 +78,7 @@ export default function StoreInventoryPage() {
 
             await Promise.allSettled(
                 activeProducts.map(async (prod) => {
-                    // Fetch for main product
-                    try {
-                        const invData = await graphqlRequest(GET_INVENTORY_QUERY, {
-                            productId: prod.id
-                        })
-                        if (invData?.inventory) {
-                            newInvMap[prod.id] = invData.inventory
-                        }
-                    } catch {
-                        // Inventory record might not yet be initialized in inventory-service
-                    }
-
-                    // If product has variants, also fetch variant inventories
+                    // If product has variants, fetch variant inventories; otherwise fetch base product inventory
                     if (Array.isArray(prod.variants) && prod.variants.length > 0) {
                         for (const variant of prod.variants) {
                             try {
@@ -102,6 +90,17 @@ export default function StoreInventoryPage() {
                                     newInvMap[`${prod.id}_${variant.id}`] = varInvData.inventory
                                 }
                             } catch {}
+                        }
+                    } else {
+                        try {
+                            const invData = await graphqlRequest(GET_INVENTORY_QUERY, {
+                                productId: prod.id
+                            })
+                            if (invData?.inventory) {
+                                newInvMap[prod.id] = invData.inventory
+                            }
+                        } catch {
+                            // Inventory record might not yet be initialized in inventory-service
                         }
                     }
                 })

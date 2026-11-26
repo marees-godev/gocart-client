@@ -5,6 +5,7 @@ import TrustBar from "@/components/TrustBar"
 import LatestProducts from "@/components/LatestProducts"
 import PromoBanner from "@/components/PromoBanner"
 import BestSelling from "@/components/BestSelling"
+import RecentlyViewed from "@/components/RecentlyViewed"
 import OurSpecs from "@/components/OurSpec"
 import Newsletter from "@/components/Newsletter"
 
@@ -16,6 +17,7 @@ export default function Home() {
             <LatestProducts />
             <PromoBanner />
             <BestSelling />
+            <RecentlyViewed />
             <OurSpecs />
             <Newsletter />
         </div>

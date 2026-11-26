@@ -10,6 +10,9 @@ import { useCurrency } from '@/lib/features/currency/useCurrency'
 import { addToCart, setCart } from '@/lib/features/cart/cartSlice'
 import { graphqlRequest } from '@/lib/apiClient'
 import { ADD_TO_CART_MUTATION } from '@/lib/graphql/cart'
+import { CANCEL_ORDER_MUTATION } from '@/lib/graphql/order'
+import { GET_DELIVERY_BY_ORDER_QUERY } from '@/lib/graphql/delivery'
+import { RETURN_ORDERS_BY_ORDER_QUERY, REQUEST_RETURN_MUTATION, REQUEST_REPLACEMENT_MUTATION } from '@/lib/graphql/return'
 import toast from 'react-hot-toast'
 import {
     Package,
@@ -95,6 +98,94 @@ const OrderItem = ({ order, onRatingSubmitted }) => {
     const [showInvoice, setShowInvoice] = useState(false)
     const [copied, setCopied] = useState(false)
     const [addingItemId, setAddingItemId] = useState(null)
+    const [deliveryInfo, setDeliveryInfo] = useState(null)
+    const [loadingTracking, setLoadingTracking] = useState(false)
+    const [showTracking, setShowTracking] = useState(false)
+    const [orderReturns, setOrderReturns] = useState([])
+    const [returnModal, setReturnModal] = useState(null) // { mode: 'RETURN' | 'REPLACEMENT', item }
+    const [returnReason, setReturnReason] = useState('')
+    const [submittingReturn, setSubmittingReturn] = useState(false)
+    const [cancelling, setCancelling] = useState(false)
+    const [localStatus, setLocalStatus] = useState(null)
+
+    const handleToggleTracking = async () => {
+        if (showTracking) {
+            setShowTracking(false)
+            return
+        }
+        setShowTracking(true)
+        if (deliveryInfo !== null) return
+        setLoadingTracking(true)
+        try {
+            const [delRes, retRes] = await Promise.allSettled([
+                graphqlRequest(GET_DELIVERY_BY_ORDER_QUERY, { orderId: String(order.id) }),
+                graphqlRequest(RETURN_ORDERS_BY_ORDER_QUERY, { orderId: String(order.id) }),
+            ])
+            if (delRes.status === 'fulfilled' && delRes.value?.deliveryByOrder) {
+                setDeliveryInfo(delRes.value.deliveryByOrder)
+            }
+            if (retRes.status === 'fulfilled' && Array.isArray(retRes.value?.returnOrdersByOrder)) {
+                setOrderReturns(retRes.value.returnOrdersByOrder)
+            }
+        } catch {
+            // silent fallback
+        } finally {
+            setLoadingTracking(false)
+        }
+    }
+
+    const handleCancelOrder = async () => {
+        const reason = prompt('Please enter a reason for cancelling this order:')
+        if (!reason) return
+        setCancelling(true)
+        const toastId = toast.loading('Cancelling order...')
+        try {
+            const res = await graphqlRequest(CANCEL_ORDER_MUTATION, { id: String(order.id), reason })
+            if (res?.cancelOrder) {
+                setLocalStatus('CANCELLED')
+                toast.success('Order cancelled successfully', { id: toastId })
+            }
+        } catch (err) {
+            toast.error(err.message || 'Could not cancel order', { id: toastId })
+        } finally {
+            setCancelling(false)
+        }
+    }
+
+    const handleSubmitReturn = async (e) => {
+        e.preventDefault()
+        if (!returnModal || !returnReason.trim()) {
+            toast.error('Please enter a reason')
+            return
+        }
+        setSubmittingReturn(true)
+        const isReplacement = returnModal.mode === 'REPLACEMENT'
+        const toastId = toast.loading(isReplacement ? 'Submitting replacement request...' : 'Submitting return request...')
+        try {
+            const input = {
+                orderId: String(order.id),
+                orderItemId: returnModal.item?.id ? String(returnModal.item.id) : undefined,
+                reason: returnReason.trim(),
+                ...(isReplacement ? {} : { type: 'RETURN' }),
+            }
+            const res = await graphqlRequest(
+                isReplacement ? REQUEST_REPLACEMENT_MUTATION : REQUEST_RETURN_MUTATION,
+                { input }
+            )
+            const created = isReplacement ? res?.requestReplacement : res?.requestReturn
+            if (created) {
+                setOrderReturns(prev => [created, ...prev])
+                setShowTracking(true)
+                toast.success(isReplacement ? 'Replacement requested!' : 'Return requested!', { id: toastId })
+                setReturnModal(null)
+                setReturnReason('')
+            }
+        } catch (err) {
+            toast.error(err.message || 'Request failed', { id: toastId })
+        } finally {
+            setSubmittingReturn(false)
+        }
+    }
 
     // Normalize order items
     const items = (order.items || order.orderItems || []).map(item => {
@@ -122,7 +213,7 @@ const OrderItem = ({ order, onRatingSubmitted }) => {
         ? order.orderNumber 
         : (order.id ? `#${order.id.slice(0, 8).toUpperCase()}` : 'Order')
 
-    const rawStatus = (order.orderStatus || order.status || 'CONFIRMED').toUpperCase()
+    const rawStatus = (localStatus || order.orderStatus || order.status || 'CONFIRMED').toUpperCase()
     const statusConfig = STATUS_CONFIG[rawStatus] || {
         label: rawStatus.replace(/_/g, ' '),
         bg: 'bg-slate-100',
@@ -235,6 +326,26 @@ const OrderItem = ({ order, onRatingSubmitted }) => {
                             {formatPrice(totalAmount)}
                         </span>
                     </div>
+
+                    <button
+                        type="button"
+                        onClick={handleToggleTracking}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 hover:bg-emerald-100 shadow-2xs transition cursor-pointer"
+                    >
+                        <Truck size={13} />
+                        <span className="max-sm:hidden">{showTracking ? 'Hide Tracking' : 'Track Delivery'}</span>
+                    </button>
+
+                    {(rawStatus === 'CREATED' || rawStatus === 'CONFIRMED' || rawStatus === 'PROCESSING') && (
+                        <button
+                            type="button"
+                            disabled={cancelling}
+                            onClick={handleCancelOrder}
+                            className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-semibold text-rose-700 bg-rose-50 border border-rose-200 hover:bg-rose-100 transition cursor-pointer disabled:opacity-50"
+                        >
+                            <span>{cancelling ? 'Cancelling...' : 'Cancel'}</span>
+                        </button>
+                    )}
 
                     <button
                         type="button"
@@ -382,6 +493,25 @@ const OrderItem = ({ order, onRatingSubmitted }) => {
                                     </button>
                                 ) : null}
 
+                                {rawStatus === 'DELIVERED' && (
+                                    <>
+                                        <button
+                                            type="button"
+                                            onClick={() => setReturnModal({ mode: 'RETURN', item })}
+                                            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-semibold text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200 transition cursor-pointer"
+                                        >
+                                            <span>Return</span>
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => setReturnModal({ mode: 'REPLACEMENT', item })}
+                                            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-semibold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 transition cursor-pointer"
+                                        >
+                                            <span>Replace</span>
+                                        </button>
+                                    </>
+                                )}
+
                                 <button
                                     type="button"
                                     onClick={() => handleBuyAgain(item)}
@@ -448,6 +578,63 @@ const OrderItem = ({ order, onRatingSubmitted }) => {
                 </div>
             </div>
 
+            {/* Live Delivery Tracking & Return Status Drawer */}
+            {showTracking && (
+                <div className="px-5 py-3.5 bg-emerald-50/40 border-t border-emerald-100 space-y-2.5 text-xs">
+                    {loadingTracking ? (
+                        <p className="text-slate-500">Loading delivery & return details...</p>
+                    ) : deliveryInfo ? (
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-white p-3 rounded-xl border border-emerald-200/70">
+                            <div>
+                                <span className="text-[10px] text-slate-400 block">Delivery Partner</span>
+                                <span className="font-bold text-slate-800">{deliveryInfo.deliveryPartner || 'Assigned Carrier'}</span>
+                            </div>
+                            <div>
+                                <span className="text-[10px] text-slate-400 block">Tracking #</span>
+                                <span className="font-mono font-bold text-slate-800">{deliveryInfo.trackingNumber || 'Pending'}</span>
+                            </div>
+                            <div>
+                                <span className="text-[10px] text-slate-400 block">Shipment Status</span>
+                                <span className="inline-block px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800">
+                                    {deliveryInfo.status}
+                                </span>
+                            </div>
+                            <div>
+                                <span className="text-[10px] text-slate-400 block">
+                                    {deliveryInfo.deliveredAt ? 'Delivered On' : 'Est. Delivery'}
+                                </span>
+                                <span className="font-semibold text-slate-700">
+                                    {deliveryInfo.deliveredAt
+                                        ? new Date(deliveryInfo.deliveredAt).toLocaleDateString()
+                                        : deliveryInfo.estimatedDeliveryAt
+                                            ? new Date(deliveryInfo.estimatedDeliveryAt).toLocaleDateString()
+                                            : 'In Progress'}
+                                </span>
+                            </div>
+                        </div>
+                    ) : (
+                        <p className="text-slate-500 italic">Shipment dispatch details are not yet generated for this order.</p>
+                    )}
+
+                    {orderReturns.length > 0 && (
+                        <div className="space-y-1.5">
+                            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block">Return / Replacement Requests</span>
+                            {orderReturns.map((ret) => (
+                                <div key={ret.id} className="flex items-center justify-between bg-white p-2.5 rounded-xl border border-slate-200">
+                                    <div>
+                                        <span className="font-bold text-slate-800">{ret.type}</span>
+                                        <span className="text-slate-500 ml-2">"{ret.reason}"</span>
+                                    </div>
+                                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800">
+                                        {ret.status}
+                                    </span>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </div>
+            )}
+
             {/* 5. Rating Modal */}
             {ratingModal && (
                 <RatingModal 
@@ -457,6 +644,58 @@ const OrderItem = ({ order, onRatingSubmitted }) => {
                         if (onRatingSubmitted) onRatingSubmitted(res)
                     }}
                 />
+            )}
+
+            {/* Return / Replacement Modal */}
+            {returnModal && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs">
+                    <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-200 space-y-4">
+                        <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                            <h3 className="text-base font-bold text-slate-800">
+                                {returnModal.mode === 'REPLACEMENT' ? 'Request Replacement' : 'Request Return'}
+                            </h3>
+                            <button
+                                type="button"
+                                onClick={() => setReturnModal(null)}
+                                className="p-1 text-slate-400 hover:text-slate-600 rounded-lg cursor-pointer"
+                            >
+                                <X size={18} />
+                            </button>
+                        </div>
+                        <form onSubmit={handleSubmitReturn} className="space-y-3 text-xs">
+                            <p className="text-slate-600">
+                                Item: <strong className="text-slate-800">{returnModal.item?.productName}</strong>
+                            </p>
+                            <div>
+                                <label className="block font-semibold text-slate-700 mb-1">Reason</label>
+                                <textarea
+                                    required
+                                    rows={3}
+                                    value={returnReason}
+                                    onChange={(e) => setReturnReason(e.target.value)}
+                                    placeholder="Describe the issue (e.g., damaged item, wrong size, defective)..."
+                                    className="w-full px-3 py-2 rounded-xl border border-slate-200 focus:border-emerald-500 outline-none"
+                                />
+                            </div>
+                            <div className="flex justify-end gap-2 pt-2">
+                                <button
+                                    type="button"
+                                    onClick={() => setReturnModal(null)}
+                                    className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-xl font-semibold cursor-pointer"
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    type="submit"
+                                    disabled={submittingReturn}
+                                    className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl font-bold cursor-pointer disabled:opacity-50"
+                                >
+                                    {submittingReturn ? 'Submitting...' : 'Submit Request'}
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
             )}
 
             {/* 6. Printable Invoice Modal */}

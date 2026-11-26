@@ -20,7 +20,10 @@ import { graphqlRequest } from '@/lib/apiClient'
 import {
     LIST_RETURNS_QUERY,
     VERIFY_PRODUCT_MUTATION,
-    UPDATE_RETURN_STATUS_MUTATION
+    UPDATE_RETURN_STATUS_MUTATION,
+    GET_EXCHANGE_QUERY,
+    VERIFY_EXCHANGE_PRODUCT_MUTATION,
+    RESOLVE_EXCHANGE_MISMATCH_MUTATION
 } from '@/lib/graphql/return'
 import toast from 'react-hot-toast'
 
@@ -47,6 +50,87 @@ export default function DeliveryReturnsPage() {
     const [isApproved, setIsApproved] = useState(true)
     const [notes, setNotes] = useState('Doorstep inspection verified by carrier agent.')
     const [isVerifying, setIsVerifying] = useState(false)
+
+    // Exchange Verification State
+    const [exchangeLookupId, setExchangeLookupId] = useState('')
+    const [exchangeData, setExchangeData] = useState(null)
+    const [loadingExchange, setLoadingExchange] = useState(false)
+    const [exCondition, setExCondition] = useState('GOOD')
+    const [exScreenIntact, setExScreenIntact] = useState(true)
+    const [exBodyIntact, setExBodyIntact] = useState(true)
+    const [exFunctional, setExFunctional] = useState(true)
+    const [exSerialMatches, setExSerialMatches] = useState(true)
+    const [exApproved, setExApproved] = useState(true)
+    const [exNotes, setExNotes] = useState('')
+    const [verifyingExchange, setVerifyingExchange] = useState(false)
+
+    const handleLookupExchange = async (e) => {
+        e?.preventDefault()
+        if (!exchangeLookupId.trim()) return
+        setLoadingExchange(true)
+        try {
+            const res = await graphqlRequest(GET_EXCHANGE_QUERY, { id: exchangeLookupId.trim() })
+            if (res?.exchange) {
+                setExchangeData(res.exchange)
+                toast.success('Exchange record loaded!')
+            } else {
+                toast.error('Exchange not found')
+            }
+        } catch (err) {
+            toast.error(err.message || 'Failed to lookup exchange')
+        } finally {
+            setLoadingExchange(false)
+        }
+    }
+
+    const handleVerifyExchange = async (e) => {
+        e.preventDefault()
+        if (!exchangeData?.id) return
+        setVerifyingExchange(true)
+        const toastId = toast.loading('Verifying trade-in device...')
+        try {
+            const res = await graphqlRequest(VERIFY_EXCHANGE_PRODUCT_MUTATION, {
+                input: {
+                    exchangeId: exchangeData.id,
+                    conditionRating: exCondition,
+                    isApproved: exApproved,
+                    screenIntact: exScreenIntact,
+                    bodyIntact: exBodyIntact,
+                    functional: exFunctional,
+                    serialMatches: exSerialMatches,
+                    notes: exNotes.trim() || undefined,
+                },
+            })
+            if (res?.verifyExchangeProduct) {
+                setExchangeData((prev) => ({ ...prev, ...res.verifyExchangeProduct }))
+                toast.success('Exchange device verified!', { id: toastId })
+            }
+        } catch (err) {
+            toast.error(err.message || 'Exchange verification failed', { id: toastId })
+        } finally {
+            setVerifyingExchange(false)
+        }
+    }
+
+    const handleResolveMismatch = async (action) => {
+        if (!exchangeData?.id) return
+        const toastId = toast.loading('Resolving exchange mismatch...')
+        try {
+            const res = await graphqlRequest(RESOLVE_EXCHANGE_MISMATCH_MUTATION, {
+                input: {
+                    exchangeId: exchangeData.id,
+                    action,
+                    paymentMethod: action === 'PAY_DIFFERENCE' ? 'CASH' : undefined,
+                },
+            })
+            if (res?.resolveExchangeMismatch) {
+                setExchangeData((prev) => ({ ...prev, ...res.resolveExchangeMismatch }))
+                toast.success(`Mismatch resolved: ${action}`, { id: toastId })
+            }
+        } catch (err) {
+            toast.error(err.message || 'Failed to resolve mismatch', { id: toastId })
+        }
+    }
 
     const fetchReturns = async () => {
         try {
@@ -400,6 +484,128 @@ export default function DeliveryReturnsPage() {
                     </div>
                 </div>
             )}
+
+            {/* Doorstep Exchange Verification Section */}
+            <div className="bg-white p-6 rounded-2xl border border-slate-200/90 shadow-2xs space-y-4">
+                <div>
+                    <h2 className="text-base font-bold text-slate-800 flex items-center gap-2">
+                        <ShieldCheck className="text-amber-600 size-5" /> Trade-In Exchange Device Verification
+                    </h2>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                        Inspect customer trade-in devices at doorstep and resolve valuation mismatches.
+                    </p>
+                </div>
+
+                <form onSubmit={handleLookupExchange} className="flex gap-2 max-w-lg text-xs">
+                    <input
+                        type="text"
+                        value={exchangeLookupId}
+                        onChange={(e) => setExchangeLookupId(e.target.value)}
+                        placeholder="Enter Exchange UUID..."
+                        className="flex-1 px-3 py-2 rounded-xl border border-slate-200 focus:border-amber-500 outline-none"
+                    />
+                    <button
+                        type="submit"
+                        disabled={loadingExchange}
+                        className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-xl cursor-pointer disabled:opacity-50"
+                    >
+                        {loadingExchange ? 'Loading...' : 'Lookup Exchange'}
+                    </button>
+                </form>
+
+                {exchangeData && (
+                    <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-4 text-xs">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                            <div>
+                                <p className="font-bold text-slate-800 text-sm">
+                                    {exchangeData.oldBrand} {exchangeData.oldModel} {exchangeData.oldVariant || ''}
+                                </p>
+                                <p className="text-slate-500">
+                                    Est. Discount: ₹{exchangeData.estimatedDiscount} • Final: ₹{exchangeData.finalDiscount ?? exchangeData.estimatedDiscount}
+                                </p>
+                            </div>
+                            <span className="px-2.5 py-1 rounded-full text-[11px] font-bold bg-amber-100 text-amber-800">
+                                {exchangeData.status}
+                            </span>
+                        </div>
+
+                        {!exchangeData.verification ? (
+                            <form onSubmit={handleVerifyExchange} className="space-y-3 border-t border-slate-200 pt-3">
+                                <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+                                    <label className="flex items-center gap-1.5 cursor-pointer">
+                                        <input type="checkbox" checked={exScreenIntact} onChange={(e) => setExScreenIntact(e.target.checked)} className="accent-amber-600" />
+                                        Screen Intact
+                                    </label>
+                                    <label className="flex items-center gap-1.5 cursor-pointer">
+                                        <input type="checkbox" checked={exBodyIntact} onChange={(e) => setExBodyIntact(e.target.checked)} className="accent-amber-600" />
+                                        Body Intact
+                                    </label>
+                                    <label className="flex items-center gap-1.5 cursor-pointer">
+                                        <input type="checkbox" checked={exFunctional} onChange={(e) => setExFunctional(e.target.checked)} className="accent-amber-600" />
+                                        Functional
+                                    </label>
+                                    <label className="flex items-center gap-1.5 cursor-pointer">
+                                        <input type="checkbox" checked={exSerialMatches} onChange={(e) => setExSerialMatches(e.target.checked)} className="accent-amber-600" />
+                                        Serial Matches
+                                    </label>
+                                    <label className="flex items-center gap-1.5 cursor-pointer font-semibold">
+                                        <input type="checkbox" checked={exApproved} onChange={(e) => setExApproved(e.target.checked)} className="accent-emerald-600" />
+                                        Approved
+                                    </label>
+                                </div>
+                                <div className="flex flex-wrap gap-2">
+                                    <select
+                                        value={exCondition}
+                                        onChange={(e) => setExCondition(e.target.value)}
+                                        className="px-3 py-2 rounded-xl border border-slate-200 bg-white"
+                                    >
+                                        <option value="GOOD">GOOD</option>
+                                        <option value="FAIR">FAIR</option>
+                                        <option value="POOR">POOR</option>
+                                        <option value="DAMAGED">DAMAGED</option>
+                                    </select>
+                                    <input
+                                        type="text"
+                                        value={exNotes}
+                                        onChange={(e) => setExNotes(e.target.value)}
+                                        placeholder="Inspection notes..."
+                                        className="flex-1 px-3 py-2 rounded-xl border border-slate-200 bg-white"
+                                    />
+                                    <button
+                                        type="submit"
+                                        disabled={verifyingExchange}
+                                        className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-xl cursor-pointer disabled:opacity-50"
+                                    >
+                                        {verifyingExchange ? 'Verifying...' : 'Submit Verification'}
+                                    </button>
+                                </div>
+                            </form>
+                        ) : (
+                            <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-200 pt-3">
+                                <span className="text-emerald-700 font-semibold">
+                                    Verified ({exchangeData.verification.conditionRating}) — {exchangeData.verification.isApproved ? 'Approved' : 'Mismatch'}
+                                </span>
+                                <div className="flex gap-2">
+                                    <button
+                                        type="button"
+                                        onClick={() => handleResolveMismatch('PAY_DIFFERENCE')}
+                                        className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold cursor-pointer"
+                                    >
+                                        Collect Difference
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => handleResolveMismatch('CANCEL_EXCHANGE')}
+                                        className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-lg font-bold cursor-pointer"
+                                    >
+                                        Cancel Exchange
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                )}
+            </div>
         </div>
     )
 }
