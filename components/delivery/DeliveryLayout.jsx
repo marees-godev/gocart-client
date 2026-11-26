@@ -8,7 +8,9 @@ import {
     AlertCircle,
     XCircle,
     Truck,
-    Send
+    Send,
+    ChevronLeft,
+    ChevronRight
 } from 'lucide-react'
 import Loading from '@/components/Loading'
 import DeliveryNavbar from './DeliveryNavbar'
@@ -21,6 +23,7 @@ import {
     DEACTIVATE_DELIVERY_PARTNER_MUTATION
 } from '@/lib/graphql/delivery'
 import { GET_MY_WAREHOUSES_QUERY } from '@/lib/graphql/inventory'
+import { useDialog } from '@/components/DialogProvider'
 import toast from 'react-hot-toast'
 
 export const DeliveryContext = createContext({
@@ -40,6 +43,7 @@ export default function DeliveryLayout({ children }) {
     const router = useRouter()
     const pathname = usePathname()
     const { user, isAuthenticated, loading: authLoading } = useSelector((state) => state.auth)
+    const { prompt: promptDialog } = useDialog()
 
     const [profile, setProfile] = useState(null)
     const [warehouses, setWarehouses] = useState([])
@@ -120,8 +124,21 @@ export default function DeliveryLayout({ children }) {
                     toast.success('Carrier online and accepting dispatches!', { id: toastId })
                 }
             } else {
-                const reason = prompt('Reason for pausing deliveries:', 'Scheduled maintenance') || 'Scheduled maintenance'
-                const res = await graphqlRequest(DEACTIVATE_DELIVERY_PARTNER_MUTATION, { reason })
+                const reason = await promptDialog({
+                    title: 'Pause Carrier Dispatch',
+                    description: 'Your carrier fleet will temporarily stop receiving new checkout shipments until you go back online.',
+                    label: 'Reason for pausing deliveries',
+                    defaultValue: 'Scheduled maintenance',
+                    placeholder: 'e.g. Scheduled maintenance, Fleet inspection...',
+                    suggestions: ['Scheduled maintenance', 'High order volume', 'Holiday / Off-hours', 'Fleet inspection'],
+                    confirmText: 'Pause Dispatch',
+                    variant: 'warning',
+                })
+                if (reason === null) {
+                    toast.dismiss(toastId)
+                    return
+                }
+                const res = await graphqlRequest(DEACTIVATE_DELIVERY_PARTNER_MUTATION, { reason: reason || 'Scheduled maintenance' })
                 if (res?.deactivateDeliveryPartner?.success) {
                     setProfile((prev) => (prev ? { ...prev, isActive: false } : prev))
                     toast.success('Carrier dispatch paused (offline)', { id: toastId })
@@ -170,8 +187,24 @@ export default function DeliveryLayout({ children }) {
                 />
 
                 <div className="flex flex-1 items-start h-full overflow-hidden">
-                    <DeliverySidebar profile={profile} sidebar={sidebar} />
-                    <div className="flex-1 h-full p-5 lg:p-8 overflow-y-scroll">
+                    <div className="relative h-full shrink-0 flex">
+                        <DeliverySidebar profile={profile} sidebar={sidebar} />
+                        <button
+                            type="button"
+                            onClick={sidebar.toggleCollapse}
+                            className={`absolute top-5 z-40 flex items-center justify-center bg-white border border-slate-200 text-slate-600 hover:text-slate-900 hover:bg-slate-50 transition cursor-pointer ${
+                                sidebar.isCollapsed
+                                    ? 'left-0 rounded-r-xl border-l-0 shadow-md px-2 py-2.5'
+                                    : '-right-3.5 size-7 rounded-full shadow-sm hover:shadow-md'
+                            }`}
+                            title={sidebar.isCollapsed ? 'Open navigation panel' : 'Close navigation panel'}
+                            aria-label={sidebar.isCollapsed ? 'Open navigation panel' : 'Close navigation panel'}
+                            aria-expanded={!sidebar.isCollapsed}
+                        >
+                            {sidebar.isCollapsed ? <ChevronRight size={16} /> : <ChevronLeft size={15} />}
+                        </button>
+                    </div>
+                    <div className={`flex-1 min-w-0 h-full p-5 lg:p-8 overflow-y-scroll transition-[padding] duration-200 ${sidebar.isCollapsed ? 'pl-12 lg:pl-14' : ''}`}>
                         {/* Status Banners (matches StoreLayout style & placement) */}
                         {isRejected && (
                             <div className="mb-6 p-4 rounded-2xl bg-rose-50 border border-rose-200 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 text-rose-900 shadow-sm">

@@ -30,6 +30,7 @@ import {
 } from 'lucide-react'
 import { assets } from '@/assets/assets'
 import toast from 'react-hot-toast'
+import { useDialog } from '@/components/DialogProvider'
 import AddressModal, { resolveUserId } from '@/components/AddressModal'
 import { useDispatch, useSelector } from 'react-redux'
 import {
@@ -98,6 +99,7 @@ function optimizeAvatarImage(file, maxWidth = 350, maxHeight = 350, quality = 0.
 
 export default function ProfilePage() {
     const dispatch = useDispatch()
+    const { confirm: confirmDialog, prompt: promptDialog } = useDialog()
     const reduxUser = useSelector((state) => state.auth?.user)
     const cartTotal = useSelector((state) => state.cart?.total || 0)
     const effectiveUserId = resolveUserId(null, reduxUser)
@@ -436,7 +438,13 @@ export default function ProfilePage() {
 
     const handleRemoveAvatar = async () => {
         if (!profileData.avatar) return
-        if (!confirm('Are you sure you want to remove your profile picture?')) return
+        const confirmed = await confirmDialog({
+            title: 'Remove Profile Picture',
+            description: 'Are you sure you want to remove your current profile picture?',
+            confirmText: 'Remove Picture',
+            variant: 'danger',
+        })
+        if (!confirmed) return
 
         const targetUserId = effectiveUserId || reduxUser?.id
         setUploadingAvatar(true)
@@ -656,7 +664,13 @@ export default function ProfilePage() {
 
     // Delete Address on Backend
     const handleDeleteAddress = async (addrId) => {
-        if (!confirm('Are you sure you want to delete this delivery address?')) return
+        const confirmed = await confirmDialog({
+            title: 'Delete Delivery Address',
+            description: 'Are you sure you want to remove this saved delivery address?',
+            confirmText: 'Delete Address',
+            variant: 'danger',
+        })
+        if (!confirmed) return
 
         setActionId(addrId)
         try {
@@ -1423,7 +1437,16 @@ export default function ProfilePage() {
                                         <button
                                             type="button"
                                             onClick={async () => {
-                                                const reason = prompt('Reason for deactivating your account (optional):')
+                                                const reason = await promptDialog({
+                                                    title: 'Deactivate Account',
+                                                    description: 'You can reactivate your account anytime by signing back in.',
+                                                    label: 'Reason for deactivating (optional)',
+                                                    placeholder: 'Let us know how we can improve...',
+                                                    required: false,
+                                                    multiline: true,
+                                                    confirmText: 'Deactivate Account',
+                                                    variant: 'warning',
+                                                })
                                                 if (reason === null) return
                                                 const toastId = toast.loading('Deactivating account...')
                                                 try {
@@ -1442,7 +1465,15 @@ export default function ProfilePage() {
                                         <button
                                             type="button"
                                             onClick={async () => {
-                                                const reason = prompt('Enter reason to permanently delete your account:')
+                                                const reason = await promptDialog({
+                                                    title: 'Delete Account Permanently',
+                                                    description: 'This will schedule your account and personal data for permanent deletion.',
+                                                    label: 'Reason for deleting your account',
+                                                    placeholder: 'Please tell us why you are leaving...',
+                                                    multiline: true,
+                                                    confirmText: 'Delete Account',
+                                                    variant: 'danger',
+                                                })
                                                 if (!reason) return
                                                 const toastId = toast.loading('Deleting account...')
                                                 try {

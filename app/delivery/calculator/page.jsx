@@ -100,7 +100,7 @@ export default function DeliveryCalculatorPage() {
     }
 
     return (
-        <div className="w-full max-w-6xl space-y-6 pb-12 text-slate-700">
+        <div className="w-full space-y-6 pb-12 text-slate-700">
             {/* Header */}
             <div>
                 <h1 className="text-2xl font-bold text-slate-900 flex items-center gap-2.5">

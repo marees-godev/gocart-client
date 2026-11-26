@@ -20,10 +20,12 @@ import {
     DELETE_WAREHOUSE_MUTATION
 } from '@/lib/graphql/inventory'
 import { GET_LOCATION_BY_PINCODE_QUERY } from '@/lib/graphql/address'
+import { useDialog } from '@/components/DialogProvider'
 import toast from 'react-hot-toast'
 
 export default function DeliveryWarehousesPage() {
     const { profile, warehouses, setWarehouses, refetchWarehouses } = useDelivery()
+    const { confirm: confirmDialog } = useDialog()
 
     const [searchQuery, setSearchQuery] = useState('')
     const [createModal, setCreateModal] = useState(false)
@@ -105,7 +107,13 @@ export default function DeliveryWarehousesPage() {
     }
 
     const handleDeleteWarehouse = async (id, name) => {
-        if (!confirm(`Are you sure you want to remove warehouse "${name}"?`)) return
+        const confirmed = await confirmDialog({
+            title: 'Remove Warehouse Hub',
+            description: `Are you sure you want to remove "${name}"? It will no longer be available for pickup routing.`,
+            confirmText: 'Remove Warehouse',
+            variant: 'danger',
+        })
+        if (!confirmed) return
         const partnerId = profile?.partnerId || profile?.id
         const toastId = toast.loading('Deleting warehouse...')
 

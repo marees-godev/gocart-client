@@ -89,7 +89,7 @@ export default function MerchantCoupons() {
     }
 
     return (
-        <div className="text-slate-600 mb-28 max-w-5xl space-y-8">
+        <div className="w-full text-slate-600 mb-28 space-y-8">
             
             {/* Page Header */}
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">

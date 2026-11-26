@@ -63,7 +63,7 @@ export default function MerchantReviews() {
     }
 
     return (
-        <div className="text-slate-600 mb-28 max-w-5xl space-y-8">
+        <div className="w-full text-slate-600 mb-28 space-y-8">
             
             {/* Page Header */}
             <div>

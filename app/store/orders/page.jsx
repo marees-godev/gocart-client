@@ -11,6 +11,7 @@ import { GET_DELIVERY_BY_ORDER_QUERY, CANCEL_DELIVERY_MUTATION } from '@/lib/gra
 import { GET_PAYMENT_BY_ORDER_QUERY, CREATE_REFUND_MUTATION } from '@/lib/graphql/payment'
 import { useStore } from '@/components/store/StoreLayout'
 import { useCurrency } from '@/lib/features/currency/useCurrency'
+import { useDialog } from '@/components/DialogProvider'
 import toast from 'react-hot-toast'
 import {
     Package,
@@ -56,6 +57,7 @@ function parseAddress(shippingAddress) {
 export default function StoreOrders() {
     const { formatPrice } = useCurrency()
     const { storeInfo } = useStore()
+    const { prompt: promptDialog } = useDialog()
     const products = useSelector(state => state.product?.list || [])
 
     const [orders, setOrders] = useState([])
@@ -166,7 +168,15 @@ export default function StoreOrders() {
     }
 
     const handleCancelDelivery = async (deliveryId) => {
-        const reason = prompt('Enter reason for cancelling delivery dispatch:')
+        const reason = await promptDialog({
+            title: 'Cancel Delivery Dispatch',
+            description: 'Provide a reason for cancelling this delivery dispatch.',
+            label: 'Cancellation reason',
+            placeholder: 'e.g. Order cancelled, Courier delay...',
+            suggestions: ['Order cancelled', 'Courier delay', 'Incorrect address'],
+            confirmText: 'Cancel Dispatch',
+            variant: 'danger',
+        })
         if (!reason) return
         const toastId = toast.loading('Cancelling delivery dispatch...')
         try {
@@ -181,7 +191,15 @@ export default function StoreOrders() {
     }
 
     const handleCancelOrder = async (orderId) => {
-        const reason = prompt('Enter cancellation reason for this order:')
+        const reason = await promptDialog({
+            title: 'Cancel Order',
+            description: 'Let the customer know why this order is being cancelled.',
+            label: 'Cancellation reason',
+            placeholder: 'e.g. Out of stock, Unable to fulfill...',
+            suggestions: ['Out of stock', 'Customer requested', 'Unable to fulfill'],
+            confirmText: 'Cancel Order',
+            variant: 'danger',
+        })
         if (!reason) return
         setCancellingOrder(true)
         const toastId = toast.loading('Cancelling order...')
@@ -204,14 +222,36 @@ export default function StoreOrders() {
             toast.error('No payment record found for this order')
             return
         }
-        const amtStr = prompt(`Enter refund amount (max ${orderPayment.amount}):`, String(orderPayment.amount))
+        const amtStr = await promptDialog({
+            title: 'Issue Refund',
+            description: `Enter the amount to refund to the customer (up to ${orderPayment.amount}).`,
+            label: `Refund amount (max ${orderPayment.amount})`,
+            defaultValue: String(orderPayment.amount),
+            inputType: 'number',
+            min: 0.01,
+            max: orderPayment.amount,
+            step: '0.01',
+            confirmText: 'Next',
+            variant: 'warning',
+        })
         if (!amtStr) return
         const amount = parseFloat(amtStr)
         if (isNaN(amount) || amount <= 0) {
             toast.error('Invalid refund amount')
             return
         }
-        const reason = prompt('Enter refund reason:') || 'Merchant initiated refund'
+        const reasonInput = await promptDialog({
+            title: 'Refund Reason',
+            description: `Refunding ${formatPrice(amount)}. Add a brief reason for your records.`,
+            label: 'Refund reason',
+            defaultValue: 'Merchant initiated refund',
+            required: false,
+            suggestions: ['Customer returned item', 'Out of stock', 'Order cancelled', 'Damaged item'],
+            confirmText: 'Issue Refund',
+            variant: 'warning',
+        })
+        if (reasonInput === null) return
+        const reason = reasonInput.trim() || 'Merchant initiated refund'
         setRefunding(true)
         const toastId = toast.loading('Processing refund...')
         try {

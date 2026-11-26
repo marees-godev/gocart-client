@@ -11,6 +11,7 @@ import { GET_PRODUCTS_QUERY } from '@/lib/graphql/product'
 import { GET_CART_QUERY, ADD_TO_CART_MUTATION } from '@/lib/graphql/cart'
 import { setProduct, setLoading as setProductLoading } from '@/lib/features/product/productSlice'
 import { detectCurrencyCodeFromEnv, setCurrency, CURRENCIES, COUNTRY_TO_CURRENCY } from '@/lib/features/currency/currencySlice'
+import { DialogProvider } from '@/components/DialogProvider'
 
 function AuthInitializer() {
   const dispatch = useDispatch()
@@ -371,7 +372,9 @@ export default function StoreProvider({ children }) {
       <ProductInitializer />
       <CurrencyInitializer />
       <CartInitializer />
-      {children}
+      <DialogProvider>
+        {children}
+      </DialogProvider>
     </Provider>
   )
 }

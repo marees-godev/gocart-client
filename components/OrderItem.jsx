@@ -13,6 +13,7 @@ import { ADD_TO_CART_MUTATION } from '@/lib/graphql/cart'
 import { CANCEL_ORDER_MUTATION } from '@/lib/graphql/order'
 import { GET_DELIVERY_BY_ORDER_QUERY } from '@/lib/graphql/delivery'
 import { RETURN_ORDERS_BY_ORDER_QUERY, REQUEST_RETURN_MUTATION, REQUEST_REPLACEMENT_MUTATION } from '@/lib/graphql/return'
+import { useDialog } from './DialogProvider'
 import toast from 'react-hot-toast'
 import {
     Package,
@@ -89,6 +90,7 @@ const STATUS_CONFIG = {
 
 const OrderItem = ({ order, onRatingSubmitted }) => {
     const { formatPrice } = useCurrency()
+    const { prompt: promptDialog } = useDialog()
     const dispatch = useDispatch()
     const { isAuthenticated, user } = useSelector(state => state.auth)
     const products = useSelector(state => state.product?.list || [])
@@ -135,7 +137,15 @@ const OrderItem = ({ order, onRatingSubmitted }) => {
     }
 
     const handleCancelOrder = async () => {
-        const reason = prompt('Please enter a reason for cancelling this order:')
+        const reason = await promptDialog({
+            title: 'Cancel Order',
+            description: 'Tell us why you want to cancel this order.',
+            label: 'Cancellation reason',
+            placeholder: 'e.g. Ordered by mistake, Delivery taking too long...',
+            suggestions: ['Ordered by mistake', 'Found a better price', 'Delivery taking too long', 'Change of address'],
+            confirmText: 'Cancel Order',
+            variant: 'danger',
+        })
         if (!reason) return
         setCancelling(true)
         const toastId = toast.loading('Cancelling order...')

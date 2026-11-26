@@ -22,12 +22,14 @@ import {
     DELETE_DELIVERY_PARTNER_MUTATION
 } from '@/lib/graphql/delivery'
 import GstinModal from '@/components/delivery/GstinModal'
+import { useDialog } from '@/components/DialogProvider'
 import toast from 'react-hot-toast'
 
 const GSTIN_REGEX = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/
 
 export default function DeliverySettingsPage() {
     const { profile, setProfile, toggleActiveStatus } = useDelivery()
+    const { prompt: promptDialog } = useDialog()
 
     const [gstinModalOpen, setGstinModalOpen] = useState(false)
     const [editModal, setEditModal] = useState(false)
@@ -111,7 +113,7 @@ export default function DeliverySettingsPage() {
     const approvalStatus = profile?.approvalStatus || 'PENDING'
 
     return (
-        <div className="w-full max-w-6xl space-y-6 pb-12 text-slate-700">
+        <div className="w-full space-y-6 pb-12 text-slate-700">
             {/* Header */}
             <div>
                 <h1 className="text-2xl font-bold text-slate-800 flex items-center gap-2.5">
@@ -260,32 +262,44 @@ export default function DeliverySettingsPage() {
                 <div>
                     <h3 className="text-sm font-bold text-rose-800">Carrier Account Lifecycle</h3>
                     <p className="text-xs text-slate-500 mt-0.5">
-                        Reactivate a deactivated carrier account or permanently schedule carrier deletion.
+                        {(!profile?.isActive || profile?.deletionReason)
+                            ? 'Reactivate your deactivated carrier account or permanently schedule carrier deletion.'
+                            : 'Your carrier account is active. You can permanently schedule carrier account deletion here.'}
                     </p>
                 </div>
                 <div className="flex items-center gap-2.5">
-                    <button
-                        type="button"
-                        onClick={async () => {
-                            const toastId = toast.loading('Reactivating carrier...')
-                            try {
-                                const res = await graphqlRequest(REACTIVATE_DELIVERY_PARTNER_MUTATION)
-                                if (res?.reactivateDeliveryPartner?.success) {
-                                    setProfile((prev) => (prev ? { ...prev, isActive: true } : prev))
-                                    toast.success(res.reactivateDeliveryPartner.message || 'Carrier reactivated!', { id: toastId })
+                    {(!profile?.isActive || profile?.deletionReason) && (
+                        <button
+                            type="button"
+                            onClick={async () => {
+                                const toastId = toast.loading('Reactivating carrier...')
+                                try {
+                                    const res = await graphqlRequest(REACTIVATE_DELIVERY_PARTNER_MUTATION)
+                                    if (res?.reactivateDeliveryPartner?.success) {
+                                        setProfile((prev) => (prev ? { ...prev, isActive: true, deletionReason: null, deactivationReason: null } : prev))
+                                        toast.success(res.reactivateDeliveryPartner.message || 'Carrier reactivated!', { id: toastId })
+                                    }
+                                } catch (err) {
+                                    toast.error(err.message || 'Reactivation failed', { id: toastId })
                                 }
-                            } catch (err) {
-                                toast.error(err.message || 'Reactivation failed', { id: toastId })
-                            }
-                        }}
-                        className="px-4 py-2 text-xs font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-xl transition cursor-pointer"
-                    >
-                        Reactivate Carrier
-                    </button>
+                            }}
+                            className="px-4 py-2 text-xs font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-xl transition cursor-pointer"
+                        >
+                            Reactivate Carrier
+                        </button>
+                    )}
                     <button
                         type="button"
                         onClick={async () => {
-                            const reason = prompt('Enter reason for deleting carrier account:')
+                            const reason = await promptDialog({
+                                title: 'Delete Carrier Account',
+                                description: 'This will permanently schedule your carrier account for deletion. Active dispatches should be completed first.',
+                                label: 'Reason for deleting carrier account',
+                                placeholder: 'Tell us why you are deleting this carrier account...',
+                                multiline: true,
+                                confirmText: 'Delete Account',
+                                variant: 'danger',
+                            })
                             if (!reason) return
                             const toastId = toast.loading('Deleting carrier account...')
                             try {

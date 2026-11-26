@@ -26,6 +26,7 @@ import {
     CANCEL_DELIVERY_MUTATION
 } from '@/lib/graphql/delivery'
 import { GET_ORDER_QUERY } from '@/lib/graphql/order'
+import { useDialog } from '@/components/DialogProvider'
 import toast from 'react-hot-toast'
 
 const DELIVERY_STAGES = [
@@ -38,6 +39,7 @@ const DELIVERY_STAGES = [
 
 export default function DeliveryDispatchPage() {
     const { profile } = useDelivery()
+    const { prompt: promptDialog } = useDialog()
 
     const [searchType, setSearchType] = useState('orderId')
     const [searchQuery, setSearchQuery] = useState('')
@@ -144,7 +146,15 @@ export default function DeliveryDispatchPage() {
 
     const handleCancel = async () => {
         if (!activeDelivery?.id) return
-        const reason = prompt('Enter exception or cancellation reason:')
+        const reason = await promptDialog({
+            title: 'Cancel Shipment Dispatch',
+            description: 'Log an exception or cancellation reason for this shipment.',
+            label: 'Exception / cancellation reason',
+            placeholder: 'e.g. Customer unavailable, Address not found...',
+            suggestions: ['Customer unavailable', 'Address not found', 'Damaged in transit', 'Merchant cancelled'],
+            confirmText: 'Cancel Shipment',
+            variant: 'danger',
+        })
         if (!reason) return
 
         const toastId = toast.loading('Logging delivery exception...')

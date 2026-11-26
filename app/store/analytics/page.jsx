@@ -90,7 +90,7 @@ export default function MerchantAnalytics() {
     ]
 
     return (
-        <div className="text-slate-600 mb-28 max-w-6xl space-y-8">
+        <div className="w-full text-slate-600 mb-28 space-y-8">
             
             {/* Header & Filter Controls */}
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
