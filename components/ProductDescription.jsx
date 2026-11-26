@@ -7,9 +7,11 @@ import Link from "next/link"
 import { assets } from "@/assets/assets"
 import { graphqlRequest } from "@/lib/apiClient"
 import { GET_PRODUCT_RATINGS_QUERY, FLAG_RATING_MUTATION } from "@/lib/graphql/rating"
+import { useDialog } from "./DialogProvider"
 import toast from "react-hot-toast"
 
 const ProductDescription = ({ product }) => {
+    const { prompt: promptDialog } = useDialog()
     const [selectedTab, setSelectedTab] = useState('Description')
     const [storeLogoLoaded, setStoreLogoLoaded] = useState(false)
     const logoRef = useRef(null)
@@ -185,7 +187,15 @@ const ProductDescription = ({ product }) => {
                                             <button
                                                 type="button"
                                                 onClick={async () => {
-                                                    const reason = prompt('Why are you flagging this review? (e.g., spam, fake review)')
+                                                    const reason = await promptDialog({
+                                                        title: 'Report Review',
+                                                        description: 'Help us keep reviews helpful and authentic. Why are you flagging this review?',
+                                                        label: 'Reason for reporting',
+                                                        placeholder: 'e.g. Spam, fake review, inappropriate content...',
+                                                        suggestions: ['Spam / Promotional', 'Fake review', 'Inappropriate language', 'Off-topic'],
+                                                        confirmText: 'Submit Report',
+                                                        variant: 'warning',
+                                                    })
                                                     if (!reason) return
                                                     try {
                                                         const res = await graphqlRequest(FLAG_RATING_MUTATION, {

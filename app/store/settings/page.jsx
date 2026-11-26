@@ -33,10 +33,12 @@ import {
     APPEAL_STORE_MUTATION,
     CLOSE_STORE_MUTATION
 } from '@/lib/graphql/store'
+import { useDialog } from '@/components/DialogProvider'
 import toast from 'react-hot-toast'
 
 export default function MerchantStoreSettings() {
     const { storeInfo, refetchStore, submittingStatus, submitDraftStore } = useStore()
+    const { prompt: promptDialog } = useDialog()
     const [activeTab, setActiveTab] = useState('general') // 'general' | 'payout' | 'policies'
     const [saving, setSaving] = useState(false)
     const [togglingPublish, setTogglingPublish] = useState(false)
@@ -159,7 +161,7 @@ export default function MerchantStoreSettings() {
     const isRejected = approvalStatus === 'REJECTED' || approvalStatus === 'rejected'
 
     return (
-        <div className="text-slate-600 mb-28 max-w-5xl space-y-6">
+        <div className="w-full text-slate-600 mb-28 space-y-6">
             {/* Page Header */}
             <div>
                 <h1 className="text-2xl text-slate-500">
@@ -642,7 +644,15 @@ export default function MerchantStoreSettings() {
                                 <button
                                     type="button"
                                     onClick={async () => {
-                                        const reason = prompt('Enter appeal justification for admin review:')
+                                        const reason = await promptDialog({
+                                            title: 'Appeal Store Decision',
+                                            description: 'Explain the updates or corrections you have made for admin review.',
+                                            label: 'Appeal justification',
+                                            placeholder: 'Describe why your store should be reconsidered...',
+                                            multiline: true,
+                                            confirmText: 'Submit Appeal',
+                                            variant: 'warning',
+                                        })
                                         if (!reason || !storeInfo?.id) return
                                         const toastId = toast.loading('Submitting store appeal...')
                                         try {
@@ -660,7 +670,15 @@ export default function MerchantStoreSettings() {
                             <button
                                 type="button"
                                 onClick={async () => {
-                                    const reason = prompt('Enter reason for closing this store:')
+                                    const reason = await promptDialog({
+                                        title: 'Close Store',
+                                        description: 'Closing your store will take your storefront offline. Please provide a reason.',
+                                        label: 'Reason for closing store',
+                                        placeholder: 'Enter reason for closing this store...',
+                                        multiline: true,
+                                        confirmText: 'Close Store',
+                                        variant: 'danger',
+                                    })
                                     if (!reason || !storeInfo?.id) return
                                     const toastId = toast.loading('Closing store...')
                                     try {

@@ -624,7 +624,7 @@ export default function StoreAddProduct() {
     }
 
     return (
-        <div className="max-w-5xl mx-auto pb-24 text-slate-700">
+        <div className="w-full pb-24 text-slate-700">
             {/* Header & Quick Action */}
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-6 border-b border-slate-200">
                 <div>

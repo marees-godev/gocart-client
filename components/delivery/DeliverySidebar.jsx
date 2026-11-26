@@ -27,7 +27,7 @@ export default function DeliverySidebar({ profile, sidebar: externalSidebar }) {
     })
 
     const sidebar = externalSidebar || internalSidebar
-    const { width, isResizing, startResizing, resetWidth } = sidebar
+    const { width, isResizing, isCollapsed, startResizing, resetWidth, collapse } = sidebar
 
     const sidebarLinks = [
         { name: 'Dashboard', href: '/delivery', icon: Home },
@@ -43,9 +43,14 @@ export default function DeliverySidebar({ profile, sidebar: externalSidebar }) {
 
     return (
         <aside
-            style={{ width: `${width}px` }}
-            className={`relative inline-flex h-full flex-col gap-5 border-r border-slate-200 bg-white shrink-0 max-sm:!w-auto ${
-                isResizing ? 'transition-none select-none' : 'transition-[width] duration-75'
+            style={{ width: isCollapsed ? '0px' : `${width}px` }}
+            aria-hidden={isCollapsed}
+            className={`relative inline-flex h-full flex-col gap-5 bg-white shrink-0 overflow-hidden ${
+                isCollapsed
+                    ? 'border-r-0 max-sm:!w-0 pointer-events-none'
+                    : 'border-r border-slate-200 max-sm:!w-auto'
+            } ${
+                isResizing ? 'transition-none select-none' : 'transition-[width] duration-200 ease-in-out'
             }`}
         >
             <div className="flex flex-col gap-2.5 justify-center items-center pt-6 px-4 max-sm:hidden text-center">
@@ -113,20 +118,22 @@ export default function DeliverySidebar({ profile, sidebar: externalSidebar }) {
             </div>
 
             {/* Resizer Handle */}
-            <div
-                onMouseDown={startResizing}
-                onDoubleClick={resetWidth}
-                className={`absolute top-0 right-0 bottom-0 w-2 -mr-1 cursor-col-resize select-none z-30 flex items-center justify-center transition-colors group max-sm:hidden ${
-                    isResizing ? 'bg-amber-500' : 'hover:bg-amber-500/40'
-                }`}
-                title="Drag to resize sidebar • Double-click to reset"
-            >
+            {!isCollapsed && (
                 <div
-                    className={`w-0.5 h-8 rounded-full transition-opacity ${
-                        isResizing ? 'bg-white opacity-100' : 'bg-slate-300 opacity-0 group-hover:opacity-100 group-hover:bg-amber-600'
+                    onMouseDown={startResizing}
+                    onDoubleClick={resetWidth}
+                    className={`absolute top-0 right-0 bottom-0 w-2 -mr-1 cursor-col-resize select-none z-30 flex items-center justify-center transition-colors group max-sm:hidden ${
+                        isResizing ? 'bg-amber-500' : 'hover:bg-amber-500/40'
                     }`}
-                />
-            </div>
+                    title="Drag to resize sidebar • Double-click to reset"
+                >
+                    <div
+                        className={`w-0.5 h-8 rounded-full transition-opacity ${
+                            isResizing ? 'bg-white opacity-100' : 'bg-slate-300 opacity-0 group-hover:opacity-100 group-hover:bg-amber-600'
+                        }`}
+                    />
+                </div>
+            )}
         </aside>
     )
 }

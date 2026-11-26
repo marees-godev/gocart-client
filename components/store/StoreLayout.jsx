@@ -11,7 +11,9 @@ import {
     Send,
     Store as StoreIcon,
     PlusCircle,
-    LogOut
+    LogOut,
+    ChevronLeft,
+    ChevronRight
 } from "lucide-react"
 import SellerNavbar from "./StoreNavbar"
 import SellerSidebar from "./StoreSidebar"
@@ -208,8 +210,24 @@ const StoreLayout = ({ children }) => {
             <div className="flex flex-col h-screen bg-slate-50">
                 <SellerNavbar storeInfo={storeInfo} sidebar={sidebar} />
                 <div className="flex flex-1 items-start h-full overflow-hidden">
-                    <SellerSidebar storeInfo={storeInfo} sidebar={sidebar} />
-                    <div className="flex-1 h-full p-5 lg:p-8 overflow-y-scroll">
+                    <div className="relative h-full shrink-0 flex">
+                        <SellerSidebar storeInfo={storeInfo} sidebar={sidebar} />
+                        <button
+                            type="button"
+                            onClick={sidebar.toggleCollapse}
+                            className={`absolute top-5 z-40 flex items-center justify-center bg-white border border-slate-200 text-slate-600 hover:text-slate-900 hover:bg-slate-50 transition cursor-pointer ${
+                                sidebar.isCollapsed
+                                    ? 'left-0 rounded-r-xl border-l-0 shadow-md px-2 py-2.5'
+                                    : '-right-3.5 size-7 rounded-full shadow-sm hover:shadow-md'
+                            }`}
+                            title={sidebar.isCollapsed ? "Open navigation panel" : "Close navigation panel"}
+                            aria-label={sidebar.isCollapsed ? "Open navigation panel" : "Close navigation panel"}
+                            aria-expanded={!sidebar.isCollapsed}
+                        >
+                            {sidebar.isCollapsed ? <ChevronRight size={16} /> : <ChevronLeft size={15} />}
+                        </button>
+                    </div>
+                    <div className={`flex-1 min-w-0 h-full p-5 lg:p-8 overflow-y-scroll transition-[padding] duration-200 ${sidebar.isCollapsed ? 'pl-12 lg:pl-14' : ''}`}>
                         
                         {/* Status Banners */}
                         {(currentApproval === 'DRAFT' || currentApproval === 'draft') && pathname !== '/store' && (

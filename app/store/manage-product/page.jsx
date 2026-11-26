@@ -29,6 +29,7 @@ import {
 } from "@/lib/graphql/product"
 import { useStore } from "@/components/store/StoreLayout"
 import { useCurrency } from "@/lib/features/currency/useCurrency"
+import { useDialog } from "@/components/DialogProvider"
 
 const PRODUCT_STATUSES = [
     { value: 'PUBLISHED', label: 'Published (Live)' },
@@ -41,6 +42,7 @@ const PRODUCT_STATUSES = [
 export default function StoreManageProducts() {
     const { formatPrice } = useCurrency()
     const { storeInfo } = useStore()
+    const { confirm: confirmDialog } = useDialog()
 
     const [loading, setLoading] = useState(true)
     const [refreshing, setRefreshing] = useState(false)
@@ -220,7 +222,13 @@ export default function StoreManageProducts() {
     }
 
     const handleDeleteProduct = async (productId, productName) => {
-        if (!confirm(`Are you sure you want to delete "${productName}"? This action cannot be undone.`)) {
+        const confirmed = await confirmDialog({
+            title: 'Delete Product',
+            description: `Are you sure you want to delete "${productName}"? This action cannot be undone.`,
+            confirmText: 'Delete Product',
+            variant: 'danger',
+        })
+        if (!confirmed) {
             return
         }
 
@@ -240,7 +248,7 @@ export default function StoreManageProducts() {
     if (loading) return <Loading variant="merchant" title="Loading Product Catalog" subtitle="Retrieving store inventory, variant matrix & stock status..." />
 
     return (
-        <div className="w-full max-w-7xl text-slate-700 pb-20 space-y-6">
+        <div className="w-full text-slate-700 pb-20 space-y-6">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div>
                     <h1 className="text-2xl font-bold text-slate-900 flex items-center gap-2">
